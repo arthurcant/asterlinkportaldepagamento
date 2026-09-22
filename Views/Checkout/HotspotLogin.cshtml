@@ -1,0 +1,20 @@
+@model HotspotLoginViewModel
+@{
+    Layout = null;
+}
+<!doctype html>
+<html lang="pt-BR">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="referrer" content="no-referrer" />
+        <title>Conectar</title>
+    </head>
+    <body>
+        <p>Seu pagamento foi aprovado. Confirme para iniciar o acesso neste dispositivo.</p>
+        <form method="post" action="@Model.LoginUrl" autocomplete="off">
+            <input type="hidden" name="username" value="@Model.Username" />
+            <input type="hidden" name="password" value="@Model.Password" />
+            <button type="submit">Iniciar meu acesso</button>
+        </form>
+    </body>
+</html>

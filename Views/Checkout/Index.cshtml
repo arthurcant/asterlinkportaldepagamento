@@ -1,0 +1,118 @@
+@using System.Globalization
+@using System.Text.Json
+@model CheckoutViewModel
+@{
+    Layout = "_PlansLayout";
+    ViewData["Title"] = "Checkout";
+    var culture = CultureInfo.GetCultureInfo("pt-BR");
+}
+<main class="checkout-page">
+    <a class="checkout-back" asp-controller="Account" asp-action="Dashboard">← Voltar aos planos</a>
+    <section class="checkout-summary">
+        <span>Plano selecionado</span>
+        <h1>@Model.Plan.Name</h1>
+        <p>R$ <strong>@Model.Plan.Price.ToString("N2", culture)</strong></p>
+    </section>
+    <section class="checkout-card">
+        <h2>Escolha como pagar</h2>
+        <p>PIX, cartão de crédito ou débito.</p>
+        @Html.AntiForgeryToken()
+        <div id="paymentBrick_container">
+        </div>
+        <div id="checkout-message" class="checkout-message" hidden></div>
+        <section id="pix-payment" class="pix-payment" hidden aria-live="polite">
+            <h3>Pague com PIX</h3>
+            <p>Escaneie o QR Code no aplicativo do seu banco ou copie o código abaixo.</p>
+            <img id="pix-qr-code" class="pix-qr-code" alt="QR Code para pagamento PIX" />
+            <label for="pix-copy-code">PIX copia e cola</label>
+            <textarea id="pix-copy-code" readonly aria-label="Código PIX copia e cola"></textarea>
+            <button id="copy-pix-code" class="copy-pix-button" type="button">Copiar código PIX
+            </button>
+            <a id="pix-ticket-link" class="pix-ticket-link" target="_blank"
+                rel="noopener noreferrer" hidden>Ver instruções do pagamento</a>
+        </section>
+    </section>
+</main>
+
+<style>
+    .pix-payment {
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        text-align: center;
+    }
+    .pix-payment h3 {
+        margin: 0 0 8px;
+    }
+    .pix-payment p {
+        margin: 0 0 18px;
+        color: #c3c5d9;
+        font-size: 14px;
+        line-height: 20px;
+    }
+    .pix-qr-code {
+        display: block;
+        width: 220px;
+        height: 220px;
+        margin: 0 auto 20px;
+        padding: 8px;
+        border-radius: 12px;
+        background: #fff;
+    }
+    .pix-payment label {
+        display: block;
+        margin-bottom: 8px;
+        color: #b7c4ff;
+        font:
+            500 12px/16px 'JetBrains Mono',
+            monospace;
+    }
+    .pix-payment textarea {
+        display: block;
+        width: 100%;
+        height: 80px;
+        resize: none;
+        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 8px;
+        background: #050814;
+        color: #dde1fa;
+        font:
+            12px/18px 'JetBrains Mono',
+            monospace;
+    }
+    .copy-pix-button {
+        width: 100%;
+        margin-top: 12px;
+        padding: 13px;
+        border: 0;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #059af0, #1d5bff);
+        color: #fff;
+        cursor: pointer;
+        font:
+            500 12px/16px 'JetBrains Mono',
+            monospace;
+        letter-spacing: 0.5px;
+    }
+    .pix-ticket-link {
+        display: inline-block;
+        margin-top: 14px;
+        color: #b7c4ff;
+        font-size: 13px;
+    }
+</style>
+
+<script src="https://sdk.mercadopago.com/js/v2"></script>
+
+<script>
+    window.asterCheckout = @Html.Raw(JsonSerializer.Serialize(new
+    {
+        publicKey = Model.PublicKey,
+        planId = Model.Plan.Id,
+        amount = Model.Plan.Price,
+        payerEmail = Model.PayerEmail
+    }));
+</script>
+
+<script src="~/js/checkout.js" asp-append-version="true"></script>

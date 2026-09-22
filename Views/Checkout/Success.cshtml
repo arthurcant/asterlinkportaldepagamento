@@ -1,0 +1,178 @@
+@using System.Globalization
+@model PaymentSuccessViewModel
+
+@{
+    Layout = "_PlansLayout";
+    ViewData["Title"] = "Pagamento aprovado";
+    var culture = CultureInfo.GetCultureInfo("pt-BR");
+}
+
+<main class="success-page">
+    <section class="success-card" aria-labelledby="success-title">
+        <div class="success-icon" aria-hidden="true">
+            <span>✓</span>
+        </div>
+        <p class="success-kicker">PAGAMENTO CONFIRMADO</p>
+        <h1 id="success-title">Compra aprovada!</h1>
+        <p class="success-description">
+            Este pagamento foi registrado pelo portal anterior. Este comprovante não confirma
+            liberação no roteador.
+        </p>
+
+        <div class="success-details">
+            <div class="success-detail">
+                <span>Plano contratado</span>
+                <strong>@Model.Session.PlanName</strong>
+            </div>
+            <div class="success-detail">
+                <span>Data registrada pelo portal anterior</span>
+                <strong>@Model.Session.ExpiresAt.ToLocalTime().ToString("dd/MM/yyyy 'às' HH:mm",
+                    culture)</strong>
+            </div>
+            <div class="success-detail">
+                <span>Pagamento</span>
+                <strong class="payment-status">Aprovado</strong>
+            </div>
+        </div>
+
+        <a class="success-primary-button" href="https://asterlink.com.br" target="_blank"
+            rel="noopener noreferrer">
+            ACESSAR A INTERNET <span aria-hidden="true">→</span>
+        </a>
+        <a class="success-secondary-button" asp-controller="Account" asp-action="Dashboard">
+            Voltar para meus planos
+        </a>
+    </section>
+</main>
+
+<style>
+    .success-page {
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 32px 16px 80px;
+        color: #dde1fa;
+        background:
+            radial-gradient(circle at 50% 10%, rgba(5, 154, 240, 0.2), transparent 35%), #050814;
+    }
+    .success-card {
+        width: min(100%, 520px);
+        padding: 40px 32px;
+        text-align: center;
+        border: 1px solid rgba(5, 154, 240, 0.35);
+        border-radius: 20px;
+        background: rgba(8, 13, 30, 0.9);
+        box-shadow:
+            0 0 60px rgba(5, 154, 240, 0.16),
+            0 24px 60px rgba(0, 0, 0, 0.45);
+    }
+    .success-icon {
+        width: 76px;
+        height: 76px;
+        display: grid;
+        place-items: center;
+        margin: 0 auto 24px;
+        border: 1px solid rgba(44, 224, 153, 0.6);
+        border-radius: 50%;
+        background: rgba(44, 224, 153, 0.12);
+        color: #2ce099;
+        font-size: 42px;
+        font-weight: 700;
+        box-shadow: 0 0 32px rgba(44, 224, 153, 0.2);
+    }
+    .success-kicker {
+        margin: 0 0 10px;
+        color: #2ce099;
+        font:
+            500 12px/16px 'JetBrains Mono',
+            monospace;
+        letter-spacing: 1px;
+    }
+    .success-card h1 {
+        margin: 0;
+        color: #fff;
+        font-size: 36px;
+        line-height: 44px;
+    }
+    .success-description {
+        max-width: 380px;
+        margin: 14px auto 28px;
+        color: #c3c5d9;
+        font-size: 15px;
+        line-height: 23px;
+    }
+    .success-details {
+        margin-bottom: 28px;
+        padding: 4px 18px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.035);
+        text-align: left;
+    }
+    .success-detail {
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 15px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .success-detail:last-child {
+        border-bottom: 0;
+    }
+    .success-detail span {
+        color: #8d90a2;
+        font-size: 13px;
+    }
+    .success-detail strong {
+        color: #f1f3ff;
+        font-size: 13px;
+        text-align: right;
+    }
+    .success-detail .payment-status {
+        color: #2ce099;
+    }
+    .success-primary-button,
+    .success-secondary-button {
+        display: block;
+        width: 100%;
+        text-decoration: none;
+    }
+    .success-primary-button {
+        padding: 14px 20px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #059af0, #1d5bff);
+        box-shadow: 0 4px 12px rgba(5, 154, 240, 0.35);
+        color: #fff;
+        font:
+            500 12px/16px 'JetBrains Mono',
+            monospace;
+        letter-spacing: 0.6px;
+    }
+    .success-primary-button span {
+        margin-left: 8px;
+        font-size: 18px;
+        vertical-align: -2px;
+    }
+    .success-secondary-button {
+        margin-top: 18px;
+        color: #b7c4ff;
+        font-size: 13px;
+    }
+    @@media (max-width: 480px) {
+        .success-card {
+            padding: 32px 20px;
+        }
+        .success-card h1 {
+            font-size: 30px;
+            line-height: 38px;
+        }
+        .success-detail {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .success-detail strong {
+            text-align: left;
+        }
+    }
+</style>

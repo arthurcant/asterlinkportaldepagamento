@@ -1,0 +1,18 @@
+@model NetworkOrder
+@{
+    ViewData["Title"] = "Acompanhar pedido";
+}
+<main class="container py-4">
+    <h1>@Model.PlanName</h1>
+    <p>Este plano oferece @Model.Minutes minutos de uso conectado. O tempo começa ao entrar no
+        HotSpot.</p>
+    <p id="network-state" role="status">Verificando pagamento e acesso…</p>
+    <form method="post" action="/checkout/pedido/@Model.Id/conectar" id="connect-form" hidden>
+        @Html.AntiForgeryToken()
+        <button type="submit">Conectar à internet</button>
+    </form>
+    <p>Se sair desta página, guarde este endereço para acompanhar o pedido.</p>
+    <a href="/conta/painel">Voltar aos planos</a>
+</main>
+
+<script src="~/js/network-order.js" data-order="@Model.Id" asp-append-version="true"></script>

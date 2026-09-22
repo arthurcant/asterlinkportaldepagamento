@@ -1,0 +1,133 @@
+@model AuthViewModel
+@{
+    Layout = "_AuthLayout";
+    ViewData["Title"] = Model.Mode == "register" ? "Criar conta" : "Entrar";
+    var registering = Model.Mode == "register";
+}
+<main class="auth-page">
+    <div class="ambient ambient-top"></div>
+    <div class="ambient ambient-bottom"></div>
+    <img class="aster-logo" src="~/images/auth/VERSÃO 6 LOGO DA ÁSTER.svg" alt="Áster Link" />
+    <section class="auth-card" aria-labelledby="auth-title">
+        <h1 id="auth-title" class="visually-hidden">@(registering ? "Criar conta" : "Entrar")</h1>
+        <nav class="auth-tabs" aria-label="Autenticação">
+            <a class="auth-tab @(!registering ? "active" : null)" asp-action="Index" asp-route-mode="login">Entrar
+            </a>
+            <a class="auth-tab @(registering ? "active" : null)" asp-action="Index" asp-route-mode="register">
+                Criar Conta</a>
+        </nav>
+
+        @if (!registering)
+        {
+            <form asp-action="Login" method="post" class="auth-form" novalidate>
+                <div asp-validation-summary="ModelOnly" class="form-alert"></div>
+                <div class="field-group">
+                    <label asp-for="Login.Identifier">Login ou e-mail</label>
+                    <div class="input-shell">
+                        <img src="~/images/auth/email.svg" alt="" />
+                        <input asp-for="Login.Identifier" autocomplete="username"
+                            placeholder="seu login" />
+                    </div>
+                    <span asp-validation-for="Login.Identifier" class="field-error"></span>
+                </div>
+                <div class="field-group password-group">
+                    <div class="label-row">
+                        <label asp-for="Login.Password">Senha</label>
+                        <span class="forgot-link" title="Recuperação de senha em breve">Esqueci
+                            minha senha</span>
+                    </div>
+                    <div class="input-shell">
+                        <img src="~/images/auth/password.svg" alt="" />
+                        <input asp-for="Login.Password" type="password"
+                            autocomplete="current-password" placeholder="••••••••" data-password />
+                        <button type="button" class="password-toggle" data-password-toggle
+                            aria-label="Mostrar senha">
+                            <img src="~/images/auth/eye.svg" alt="" />
+                        </button>
+                    </div>
+                    <span asp-validation-for="Login.Password" class="field-error"></span>
+                </div>
+                <button class="submit-button" type="submit">
+                    <span>ACESSAR REDE</span>
+                    <img src="~/images/auth/arrow.svg" alt="" />
+                </button>
+            </form>
+        }
+        else
+        {
+            <form asp-action="Register" method="post" class="auth-form register-form" novalidate>
+                <div asp-validation-summary="ModelOnly" class="form-alert"></div>
+                <div class="field-group">
+                    <label asp-for="Register.Name">Nome</label>
+                    <div class="input-shell">
+                        <span class="text-icon">Aa</span>
+                        <input asp-for="Register.Name" autocomplete="name" placeholder="Seu nome" />
+                    </div>
+                    <span asp-validation-for="Register.Name" class="field-error"></span>
+                </div>
+                <div class="field-group">
+                    <label asp-for="Register.Username">Login</label>
+                    <div class="input-shell">
+                        <span class="text-icon">@@</span>
+                        <input asp-for="Register.Username" autocomplete="username"
+                            placeholder="seu.login" />
+                    </div>
+                    <span asp-validation-for="Register.Username" class="field-error"></span>
+                </div>
+                <div class="field-group">
+                    <label asp-for="Register.Email">E-mail</label>
+                    <div class="input-shell">
+                        <img src="~/images/auth/email.svg" alt="" />
+                        <input asp-for="Register.Email" autocomplete="email"
+                            placeholder="usuario@aster.com" />
+                    </div>
+                    <span asp-validation-for="Register.Email" class="field-error"></span>
+                </div>
+                <div class="field-grid">
+                    <div class="field-group">
+                        <label asp-for="Register.Password">Senha</label>
+                        <div class="input-shell">
+                            <img src="~/images/auth/password.svg" alt="" />
+                            <input asp-for="Register.Password" type="password"
+                                autocomplete="new-password" placeholder="8+ caracteres" />
+                        </div>
+                        <span asp-validation-for="Register.Password" class="field-error"></span>
+                    </div>
+                    <div class="field-group">
+                        <label asp-for="Register.ConfirmPassword">Confirmar</label>
+                        <div class="input-shell">
+                            <img src="~/images/auth/password.svg" alt="" />
+                            <input asp-for="Register.ConfirmPassword" type="password"
+                                autocomplete="new-password" placeholder="Repita a senha" />
+                        </div>
+                        <span asp-validation-for="Register.ConfirmPassword" class="field-error">
+                        </span>
+                    </div>
+                </div>
+                <button class="submit-button" type="submit">
+                    <span>CRIAR CONTA</span>
+                    <img src="~/images/auth/arrow.svg" alt="" />
+                </button>
+            </form>
+        }
+
+    </section>
+    <a class="sponsor-card" href="https://asterlink.com.br" target="_blank"
+        rel="noopener noreferrer">
+        <span class="sponsor-image">
+            <img src="~/images/auth/sponsor.png" alt="" />
+        </span>
+        <span class="sponsor-copy"><small>Banner de Patrocínio</small><strong>Ultra Fibra
+                Áster</strong>
+            <span>Conectividade sem limites…</span>
+        </span>
+        <span class="sponsor-arrow">
+            <img src="~/images/auth/external-link.svg" alt="" />
+        </span>
+    </a>
+</main>
+
+@section Scripts
+{
+    <partial name="_ValidationScriptsPartial" />
+}
