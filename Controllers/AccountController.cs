@@ -27,6 +27,9 @@ public sealed class AccountController(IUserRepository users, IPlanRepository pla
     [HttpPost("entrar"), ValidateAntiForgeryToken]
     public async Task<IActionResult> Login([Bind(Prefix = "Login")] LoginInputModel input, CancellationToken cancellationToken)
     {
+        var x = HttpContext.Connection.RemoteIpAddress;
+
+
         var model = new AuthViewModel
         {
             Mode = "login",

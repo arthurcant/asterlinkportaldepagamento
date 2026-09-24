@@ -1,0 +1,12 @@
+{
+  "tabWidth": 4,
+  "printWidth": 100,
+  "singleQuote": true,
+  "endOfLine": "crlf",
+  "overrides": [
+    {
+      "files": "*.json",
+      "options": { "tabWidth": 2 }
+    }
+  ]
+}
