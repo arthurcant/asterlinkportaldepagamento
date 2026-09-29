@@ -50,14 +50,15 @@ public sealed class NetworkProvisioningWorker(
 }
 
 public sealed class PaymentReconciliation(
-    NetworkOrderRepository orders,
+    INetworkOrderStore orders,
     MercadoPagoPayments payments,
     RouterOsHotspot router,
-    IOptions<NetworkOptions> options,
+    IOptions<MercadoPagoOptions> options,
     ILogger<PaymentReconciliation> logger)
 {
     public async Task<bool> ProcessAsync(string paymentId, CancellationToken ct)
     {
+        options.Value.Validate();
         var payment = await payments.GetAsync(paymentId, ct);
         var reference = RouterOsHotspot.Value(payment, "external_reference");
 
@@ -92,6 +93,8 @@ public sealed class PaymentReconciliation(
         order.PaymentStatus = RouterOsHotspot.Value(payment, "status");
         order.ProtectedPayload = "";
 
+        var retryConnection = false;
+
         if (order.PaymentStatus == "approved" && order.AccessStatus != "revoked")
         {
             if (order.AccessStatus != "ready")
@@ -102,6 +105,10 @@ public sealed class PaymentReconciliation(
             await orders.SaveAsync(order, ct);
             await router.EnsureUserAsync(order, ct);
             order.AccessStatus = "ready";
+            // Persist creation before login: a lost response must never create a new allowance.
+            await orders.SaveAsync(order, ct);
+            var connected = await router.LoginAsync(order, ct);
+            retryConnection = !connected && !(await router.StatusAsync(order, ct)).Expired;
         }
         else if (order.PaymentStatus is "refunded" or "charged_back" or "cancelled")
         {
@@ -111,6 +118,6 @@ public sealed class PaymentReconciliation(
 
         await orders.SaveAsync(order, ct);
 
-        return order.PaymentStatus is "pending" or "in_process" or "authorized";
+        return retryConnection || order.PaymentStatus is "pending" or "in_process" or "authorized";
     }
 }

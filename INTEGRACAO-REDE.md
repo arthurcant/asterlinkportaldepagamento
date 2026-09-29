@@ -1,80 +1,75 @@
-# Integração de rede — MVP de laboratório
+# Integração com a REST API oficial do RouterOS 7
 
-Implementado para ASP.NET Core MVC/.NET 10, MySQL e MikroTik RouterOS 7 HotSpot + REST. Não requer API de autorização nos APs Huawei/Wavlink. Não é configuração pronta para a rede de produção da Arena.
+O portal usa a REST API para identificar o dispositivo, criar a conta HotSpot, conectar o cliente e revogar o acesso. As credenciais administrativas permanecem no backend. O navegador não recebe senhas do roteador nem precisa enviar um formulário de login ao HotSpot.
 
-## Estado seguro inicial
+## Configuração centralizada
 
-`Network:Enabled` é falso por padrão. As novas cobranças ficam bloqueadas até configurar a rede. Login, cadastro e catálogo continuam disponíveis. A migração não é automática. Os registros antigos de access_sessions permanecem; sua tela agora esclarece que não comprovam liberação no roteador.
+Configure `appsettings.Development.json`, carregado automaticamente no ambiente `Development`. O arquivo está ignorado pelo Git porque contém credenciais locais. Os nomes de parâmetros definidos pelo protocolo ficam no serviço; endereços, credenciais e opções da instalação ficam no JSON.
 
-## Fluxo implementado
+| Campo em `Network` | Finalidade |
+| --- | --- |
+| `Enabled` | Ativa novas cobranças integradas e o processamento da fila. |
+| `RestUrl` | Endereço do roteador terminado em `/rest/`. |
+| `Username`, `Password` | Credenciais administrativas enviadas com HTTP Basic Auth. |
+| `HotspotServer` | Nome real do servidor em `/ip/hotspot`. |
+| `UserProfile` | Perfil existente em `/ip/hotspot/user/profile`, com `shared-users=1`. |
+| `ClientSubnet` | Rede IPv4/CIDR dos clientes, usada para validar a origem. |
+| `GatewayId` | Identificador persistido nos pedidos. Não trocar enquanto houver pedidos em uso. |
+| `RequestTimeoutSeconds` | Tempo máximo de cada requisição REST, entre 1 e 60 segundos. |
+| `AllowInsecureHttpForDevelopment` | Permite HTTP somente no ambiente Development. Em outros ambientes a aplicação recusa essa opção. |
 
-1. Cliente na rede de visitantes abre `/rede/entrada` por HTTPS.
-2. O servidor consulta a tabela `/ip/hotspot/host`, correlaciona o IPv4 remoto com um único MAC do HotSpot configurado e grava cookie protegido. Não aceita um MAC arbitrário por query string.
-3. Login/cadastro continuam no AccountController. O checkout preserva o contexto protegido e verifica novamente o dispositivo antes da cobrança.
-4. O pedido é persistido antes de POST `/v1/payments`: usuário, plano/preço/duração congelados, gateway e MAC. A referência e chave de idempotência são o ID do pedido. O payload é protegido com ASP.NET Data Protection para permitir repetição idêntica após timeout, e é descartado quando o pagamento é identificado.
-5. POST `/webhooks/mercadopago` valida HMAC de x-signature usando data.id da query. O corpo não decide a autorização. Após assinatura válida, grava uma notificação durável antes de responder 200.
-6. O worker consulta GET `/v1/payments/{id}`. Compara pedido, preço, moeda BRL, recebedor e ambiente. Apenas approved pode provisionar. Pendências e falhas são repetidas, sem depender do navegador permanecer aberto.
-7. Cria usuário com nome exclusivo do pedido, senha aleatória, MAC, server/profile e limit-uptime. Um pedido de 60 minutos envia 60m. Repetições reconciliam o usuário existente; não alteram contadores. Nome existente com atributos divergentes interrompe a liberação.
-8. A tela de acompanhamento distingue aprovação, preparação e conexão. O cliente confirma o login por formulário HTTPS no servlet oficial do HotSpot. As credenciais entregues ao cliente pertencem somente à compra; credenciais administrativas nunca saem do backend.
-9. O RouterOS encerra o acesso ao consumir o limite. O banco não tenta simular esse corte com expires_at. Refunded, charged_back e cancelled recebidos e confirmados provocam desativação do usuário e remoção das sessões ativas.
+O endereço e as credenciais fornecidas foram aplicados ao JSON local. Os valores preexistentes `HotspotServer=hotspot1`, `UserProfile=asterlink-paid-lab`, `ClientSubnet=192.168.56.0/24` e `GatewayId=arena-lab` foram preservados; **não foram confirmados no equipamento**. A API em `192.168.1.75` não respondeu à consulta durante esta alteração. A rede dos clientes não pode ser deduzida do IP de gerenciamento do roteador.
 
-## Configuração do laboratório
+Mantida a URL HTTP já utilizada no desenvolvimento. HTTP transmite as credenciais sem criptografia: utilizar somente em uma rede de laboratório confiável. Para HTTPS, habilitar `www-ssl` com certificado confiável e alterar `RestUrl`; a aplicação não ignora certificados inválidos. REST usa `www`/`www-ssl`, e não as portas 8728/8729 da API binária.
 
-Use o arquivo `appsettings.Network.example.json` somente como referência: ele NÃO é carregado automaticamente. Configure os campos Network e MercadoPago:WebhookSecret por variáveis de ambiente, secrets de desenvolvimento ou configuração local não versionada. Em variáveis de ambiente, `Network__Enabled` equivale a `Network:Enabled`.
+`ConnectionStrings:DefaultConnection` e a seção `MercadoPago` continuam necessários para persistir pedidos e confirmar pagamentos. Removê-los impediria a liberação após pagamento. As opções `WebhookUrl`, `CollectorId` e `LiveMode` foram movidas de `Network` para `MercadoPago`, no mesmo arquivo.
 
-Campos obrigatórios: GatewayId, RestUrl HTTPS terminado em `/rest/`, Username, Password, HotspotServer, UserProfile, LoginUrl HTTPS do servlet `/login`, ClientSubnet IPv4/CIDR, WebhookUrl pública HTTPS, CollectorId correspondente à conta do pagamento, LiveMode explícito. Também configurar AccessToken, PublicKey e WebhookSecret do Mercado Pago.
+Ainda é necessário preencher com dados reais:
 
-Em desenvolvimento, usar credenciais e meios de teste do Mercado Pago e LiveMode=false. Não inserir segredos no arquivo exemplo nem no Git. A integração não desativa a validação TLS; instale a CA adequada para os certificados do laboratório. Preserve as chaves de ASP.NET Data Protection entre reinícios e compartilhe/proteja o key ring se houver mais de uma instância; sua perda impede recuperar cookies, senhas HotSpot e payloads pendentes.
+- `MercadoPago:WebhookUrl`: URL HTTPS pública que recebe `/webhooks/mercadopago`.
+- `MercadoPago:WebhookSecret`: segredo de assinatura configurado no Mercado Pago.
+- `MercadoPago:CollectorId`: ID da conta recebedora correspondente ao token.
 
-Aplicar manualmente `scriptsDB/006_network_orders.sql` no banco de desenvolvimento, após os scripts anteriores, com cópia de segurança. O script não contém USE para evitar selecionar automaticamente o banco de produção. Acrescenta somente network_orders e payment_notifications. O schema guarda o snapshot do pedido em documento JSON serializado e índices próprios para IDs/usuário; não altera a tabela histórica.
+As credenciais de pagamento existentes foram preservadas. Campos desconhecidos permanecem vazios; a aplicação informa a configuração pendente e não inicia a cobrança. Em outro ambiente, forneça as mesmas seções por configuração apropriada ao ambiente; o arquivo Development não é carregado automaticamente em Production.
 
-## Rede e confiança no dispositivo
+## Fluxo após o pagamento
 
-Este MVP exige que a conexão do cliente ao portal chegue com seu IPv4 real, sem NAT ou proxy intermediário. `ClientSubnet` deve ser a rede de visitantes, e não uma rede pública ou de gestão. Não há middleware que confie indiscriminadamente em X-Forwarded-For. Uma hospedagem externa não atende a essa premissa e precisa de adaptação com componente local autenticado; não basta encaminhar o MAC em uma URL.
+1. O dispositivo abre `/rede/entrada`. O backend correlaciona seu IPv4 remoto com um único MAC na tabela `/ip/hotspot/host` e protege o contexto em cookie.
+2. O checkout revalida o dispositivo e grava um pedido com preço e duração do plano obtidos no banco. Valores enviados pelo navegador não definem o tempo comprado.
+3. A resposta do pagamento e as notificações assinadas alimentam uma fila persistente. A conciliação consulta o pagamento no Mercado Pago e confere ID, referência, valor, moeda, recebedor e ambiente.
+4. Somente `approved` cria um usuário via `PUT /rest/ip/hotspot/user`, com senha exclusiva da compra, MAC, servidor, perfil e `limit-uptime`. Um plano de 90 minutos envia `90m`.
+5. O backend resolve novamente o IP atual do MAC e executa `POST /rest/ip/hotspot/active/login` com `ip`, `mac-address`, `user` e `password`. Depois consulta `/ip/hotspot/active` para confirmar a conexão.
+6. Se o cliente estiver temporariamente ausente, a fila tenta novamente. A página também oferece uma tentativa manual pelo backend. Login e senha não são enviados ao navegador.
+7. O RouterOS encerra o acesso quando o usuário atinge `limit-uptime`. Pagamentos estornados, contestados ou cancelados, confirmados pela conciliação, desativam o usuário com `PATCH` e removem sessões ativas com `DELETE`.
 
-A rede deve usar DHCP/controlar conflitos e isolar clientes para reduzir falsificação de IP/MAC. MAC não é uma identidade criptográfica e pode mudar por recursos de privacidade do dispositivo. O pedido vale para o MAC observado, não para todo dispositivo da conta. Para trocar de dispositivo, será necessária uma política explícita de transferência.
+Notificações repetidas e respostas perdidas não recriam o usuário, não zeram contadores e não reiniciam uma sessão já ativa. A criação é persistida antes do login. Uma conta marcada como pronta que desapareça do roteador exige revisão, em vez de ganhar outra franquia automaticamente.
 
-No RouterOS: habilitar HotSpot no modo do equipamento, instalar certificado válido, configurar login por HTTPS e perfil de usuário com shared-users=1. Servidor/profile precisam existir antes da primeira compra. Revisar limites adicionais do perfil para não encerrar sessões indevidamente. A conta REST deve ter somente as permissões administrativas necessárias e acesso permitido exclusivamente pela rede de gestão. Não habilitar bypassed para clientes pagos. Não habilitar trial automaticamente.
+## Duração e requisitos da rede
 
-A página de login do HotSpot deve oferecer um link HTTPS fixo para `https://SEU-PORTAL/rede/entrada`. O backend resolve o MAC consultando o roteador; não é necessário aceitar as variáveis MAC/IP do HTML como prova. Depois da aprovação, o formulário usa exclusivamente Network:LoginUrl, nunca um endereço escolhido pelo visitante.
+A duração representa **minutos acumulados de conexão**, como já informado na tela do plano. Não é validade corrida desde a confirmação do pagamento. Desconectar preserva o saldo restante; a compra expirada não ganha novos minutos. O corte é executado pelo roteador, sem depender do backend permanecer ligado. A persistência de contadores após reinício ou queda de energia deve ser testada no equipamento real.
 
-Permitir no walled garden o portal e as dependências efetivamente usadas pelo checkout. Acesso a aplicativos bancários não está automaticamente resolvido: testar os bancos desejados ou usar dados móveis/outro dispositivo. Uma franquia pré-pagamento é uma funcionalidade separada e ainda não foi implementada. Impedir saída IPv6 que contorne o controle IPv4 do HotSpot.
+O HotSpot e seu perfil precisam existir no roteador. A conta REST precisa das permissões para consultar, criar usuários, executar login, desativar usuários e remover sessões. O perfil deve permitir um usuário simultâneo e não impor outros limites incompatíveis com o plano. A autenticação dos clientes usa as contas locais criadas pelo portal.
 
-## Duração
+O backend precisa alcançar o roteador e receber o IPv4 real do cliente. Uma hospedagem externa atrás de NAT/proxy não satisfaz automaticamente essa condição. O código não confia em MAC/IP enviado por query string nem em `X-Forwarded-For` arbitrário. O walled garden deve permitir o portal e os serviços efetivamente usados no checkout; validar também o acesso ao aplicativo bancário e impedir caminhos de saída que contornem o HotSpot.
 
-Interpretação adotada: minutos de uso conectado, acumulados na conta HotSpot da compra. Não consome enquanto aguarda pagamento ou antes da primeira autenticação. Não é uma validade contínua por relógio; desconexões permitem usar saldo restante. Não apagar/recriar usuários ou resetar uptime para recuperar uma falha. Se um usuário já marcado ready desaparecer, o worker exige revisão em vez de recriá-lo automaticamente.
+Aplicar `scriptsDB/006_network_orders.sql` no banco escolhido, após os scripts anteriores, se as tabelas ainda não existirem. A migração não é automática. Os registros históricos de `access_sessions` são preservados. As chaves padrão do ASP.NET Data Protection precisam sobreviver aos reinícios para recuperar senhas de compras e cookies; em múltiplas instâncias é necessário compartilhar o key ring com proteção adequada.
 
-É obrigatório validar persistência dos contadores após reinício e queda de energia no RouterOS escolhido antes de produção. Esta implementação não afirma que uma falha de armazenamento do equipamento preserva todo o consumo. Para validade contínua e política centralizada, evoluir para RADIUS com Session-Timeout calculado pelo saldo/validade e recusa de novos logins após expiração.
+Desativar `Network:Enabled` interrompe novos processamentos, mas não revoga sessões existentes; seus limites permanecem no roteador. Estornos dependem da entrega de notificações e da conciliação. Não há varredura completa de todos os pagamentos já finalizados.
 
-## Recuperação e limites desta primeira versão
+## Verificação
 
-- Pedidos são coordenados por GET_LOCK do MySQL, com liberação explícita em conexão dedicada. Todos os processos devem usar o mesmo banco/servidor para essa coordenação. Não presume locks distribuídos entre servidores MySQL independentes.
-- Aprovação e enfileiramento da resposta síncrona são gravados na mesma transação. Webhooks têm contador de revisão para não apagar uma notificação mais nova durante processamento.
-- O worker processa até 20 notificações por rodada, repetindo falhas após 30 segundos. Não é dimensionamento para toda a Arena; monitorar logs/fila e ajustar após teste de carga. Divergências de pagamento geram log de erro e não concedem acesso.
-- A assinatura não aplica uma janela temporal arbitrária que descarte reentregas legítimas. Replays válidos consultam o estado atual do pagamento e não reinicializam o acesso. A API pública precisa de limitação de requisições na implantação.
-- Falha permanente ao criar um pagamento pode exigir atendimento: o sistema preserva o pedido/payload para não gerar uma segunda cobrança após resultado incerto. Não cria automaticamente outra compra em erro de transporte.
-- O acompanhamento de um pedido exige autenticação do proprietário. Guarde sua URL. Histórico navegável de todos os pedidos e interface de atendimento/reprocessamento ainda não fazem parte desta versão.
-- Desativar Network:Enabled interrompe novas cobranças e processamento; não revoga automaticamente sessões existentes. Seu limite já está no roteador.
-- Estorno depende de notificação/reconciliação; não existe varredura periódica completa de pagamentos finalizados caso o provedor deixe de entregar todas as notificações. Uma confirmação é refeita ao solicitar o formulário de conexão.
+```powershell
+dotnet build asterlinkportaldepagamento.csproj --no-restore
+dotnet run --project tests/NetworkIntegration/Network.Tests.csproj --no-restore
+```
 
-## Validação
+Os testes executam o cliente REST e a conciliação reais com transporte HTTP e persistência simulados. Cobrem autenticação, validação do pagamento, criação, conexão automática, IP alterado, dispositivo ausente, falhas de resposta, duplicidade, esgotamento e revogação. Não comprovam conectividade física, configuração do HotSpot, transações MySQL nem pagamentos reais. Não foi possível executar o ensaio físico porque o roteador não respondeu.
 
-Para executar os testes incluídos: `dotnet run --project tests/NetworkIntegration/Network.Tests.csproj`. São testes executáveis sem framework/NuGet adicional; o processo falha com código não zero se uma verificação falhar.
+Não houve alteração de configuração no equipamento. Para concluir a validação operacional, conferir os valores reais do HotSpot, preencher os dados pendentes de pagamento e testar uma compra de curta duração, reconexão e corte por tempo no dispositivo.
 
-Opcionalmente configure `Network:DataProtectionKeyPath` com diretório persistente fora do repositório, acessível somente à conta do serviço. No Windows, o código aplica DPAPI para proteção em repouso; em outros sistemas, providencie proteção adequada do key ring antes de produção. A configuração não altera o diretório padrão se estiver vazia.
+## Referências oficiais consultadas antes da implementação
 
-Projeto compilado em .NET SDK 10.0.400 sem avisos/erros. Testes de lógica/transporte HTTP simulado cobrem assinatura, adulteração, preço/moeda/recebedor/ambiente, origem fora da rede, MAC ambíguo, timeout após criação, reconciliação sem novo crédito e esgotamento do limite. Não foram usados roteador, banco ou gateway de pagamento reais nesses testes.
-
-Antes de ativar: testar a migração em MySQL isolado, concorrência entre instâncias, reentrega de webhook, pagamento PIX/cartão de teste, reconexão, corte com backend desligado, reinício do roteador, certificados, walled garden e dispositivos Android/iOS. Fazer ensaio em CHR com poucos minutos, seguido de plano de uma hora.
-
-## Documentação oficial usada
-
-- REST RouterOS, métodos GET/PUT/PATCH/DELETE e HTTPS: https://help.mikrotik.com/docs/spaces/ROS/pages/47579162/REST%2BAPI
-- HotSpot, MAC, limit-uptime, shared-users, tabelas e bloqueio IPv4: https://manual.mikrotik.com/docs/authentication-authorization-accounting/hotspot-captive-portal/
-- Retorno ao servlet oficial de login: https://help.mikrotik.com/docs/spaces/ROS/pages/87162881/Hotspot%2Bcustomisation
-- HMAC Mercado Pago: https://www.mercadopago.com.mx/developers/en/docs/prestashop/additional-content/your-integrations/notifications/webhooks
-- Webhooks e consulta de pagamento: https://www.mercadopago.com.br/developers/en/docs/checkout-bricks/additional-content/your-integrations/notifications/webhooks
-- RADIUS: https://manual.mikrotik.com/docs/authentication-authorization-accounting/radius/
-- CHR oficial: https://help.mikrotik.com/docs/spaces/ROS/pages/18350234/Cloud%2BHosted%2BRouter%2BCHR
-
-Não foram enviados comandos aos APs Huawei, Wavlink ou switch. O laboratório CHR reproduz a lógica RouterOS, não rádio/PoE/desempenho físico ou o licenciamento L4 do RB760iGS.
+- [REST API: Basic Auth, métodos HTTP, JSON e IDs de registros](https://manual.mikrotik.com/docs/developer-guides/rest-api/).
+- [Comando HotSpot active/login e seus argumentos](https://manual.mikrotik.com/docs/cli-reference/ip/hotspot/active/login/).
+- [HotSpot: limit-uptime, MAC, usuários, perfis e sessões](https://help.mikrotik.com/docs/spaces/ROS/pages/56459266/HotSpot%2B-%2BCaptive%2Bportal).
+- [Campos do usuário HotSpot](https://manual.mikrotik.com/docs/cli-reference/ip/hotspot/user/).

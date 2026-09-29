@@ -1,9 +1,13 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
+using asterlinkportaldepagamento.Data;
 using asterlinkportaldepagamento.Models;
 using asterlinkportaldepagamento.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 
 var count = 0;
 
@@ -75,8 +79,11 @@ var options = new NetworkOptions
     Password = "secret",
     HotspotServer = "guest",
     UserProfile = "paid",
-    LoginUrl = "https://guest.example/login",
-    ClientSubnet = "192.168.88.0/24",
+    ClientSubnet = "192.168.88.0/24"
+};
+
+var paymentOptions = new MercadoPagoOptions
+{
     WebhookUrl = "https://portal.example/webhooks/mercadopago",
     CollectorId = "123",
     LiveMode = false
@@ -107,21 +114,42 @@ JsonElement Payment(
     live_mode = live
 });
 
-Check(MercadoPagoPayments.Matches(Payment(), order, options), "payment matches purchase snapshot");
+Check(MercadoPagoPayments.Matches(Payment(), order, paymentOptions), "payment matches purchase snapshot");
 
-Check(!MercadoPagoPayments.Matches(Payment(amount: 1), order, options), "reject wrong amount");
+Check(!MercadoPagoPayments.Matches(Payment(amount: 1), order, paymentOptions), "reject wrong amount");
 
-Check(!MercadoPagoPayments.Matches(Payment(currency: "USD"), order, options), "reject wrong currency");
+Check(!MercadoPagoPayments.Matches(Payment(currency: "USD"), order, paymentOptions), "reject wrong currency");
 
-Check(!MercadoPagoPayments.Matches(Payment(collector: "456"), order, options), "reject wrong recipient");
+Check(!MercadoPagoPayments.Matches(Payment(collector: "456"), order, paymentOptions), "reject wrong recipient");
 
-Check(!MercadoPagoPayments.Matches(Payment(live: true), order, options), "reject environment mismatch");
+Check(!MercadoPagoPayments.Matches(Payment(live: true), order, paymentOptions), "reject environment mismatch");
 
 Check(
-    !MercadoPagoPayments.Matches(Payment(reference: "another-order"), order, options),
+    !MercadoPagoPayments.Matches(Payment(reference: "another-order"), order, paymentOptions),
     "reject another purchase");
 
 var handler = new FakeRouter();
+
+options.Validate();
+Check(true, "RouterOS settings do not require a payment webhook or browser login URL");
+options.RestUrl = "http://router.example/rest/";
+await Reject(() =>
+{
+    options.Validate();
+    return Task.CompletedTask;
+}, "HTTP requires explicit opt-in");
+options.AllowInsecureHttpForDevelopment = true;
+options.Validate();
+Check(true, "explicit development HTTP is accepted");
+options.RestUrl = "https://router.example/rest/";
+options.AllowInsecureHttpForDevelopment = false;
+options.ClientSubnet = "invalid";
+await Reject(() =>
+{
+    options.Validate();
+    return Task.CompletedTask;
+}, "invalid client subnet fails before charging");
+options.ClientSubnet = "192.168.88.0/24";
 
 var router = new RouterOsHotspot(new FakeFactory(handler), Options.Create(options), new EphemeralDataProtectionProvider());
 
@@ -149,6 +177,14 @@ await Reject(
 
 handler.DuplicateHost = false;
 
+await Reject(
+    () => router.EnsureUserAsync(order, default),
+    "pending payment cannot provision a HotSpot user");
+
+Check(handler.PutCount == 0, "no network grant before payment approval");
+
+order.PaymentStatus = "approved";
+
 handler.FailAfterCreate = true;
 
 try
@@ -170,9 +206,68 @@ Check(
     handler.User!["limit-uptime"] == "60m" && handler.User["mac-address"] == order.Mac,
     "purchase duration and MAC sent to router");
 
+order.Address = "192.168.88.99";
+Check(await router.LoginAsync(order, default), "approved purchase connects through REST");
+Check(
+    handler.LoginBody!["ip"] == "192.168.88.10"
+        && handler.LoginBody["mac-address"] == "02:11:22:33:44:55"
+        && handler.LoginBody["user"] == order.Username
+        && handler.LoginBody["password"] == "random-purchase-password"
+        && !handler.LoginBody.ContainsKey("server"),
+    "login uses documented fields and current router address, not stale checkout IP");
+Check(await router.LoginAsync(order, default) && handler.LoginCount == 1,
+    "repeated login keeps an existing session and its remaining time");
+
+order.PaymentStatus = "pending";
+await Reject(() => router.LoginAsync(order, default), "pending payment cannot log in");
+order.PaymentStatus = "approved";
+order.AccessStatus = "revoked";
+await Reject(() => router.LoginAsync(order, default), "revoked purchase cannot log in");
+order.AccessStatus = "provisioning";
+
+handler.Active = false;
+handler.HostPresent = false;
+Check(!await router.LoginAsync(order, default) && handler.LoginCount == 1,
+    "offline device does not trigger login against a stale address");
+handler.HostPresent = true;
+handler.DuplicateHost = true;
+await Reject(() => router.LoginAsync(order, default), "ambiguous MAC cannot log in");
+handler.DuplicateHost = false;
+handler.HostAddress = "192.168.99.10";
+await Reject(() => router.LoginAsync(order, default), "login rejects host outside configured subnet");
+handler.HostAddress = "192.168.88.10";
+
+handler.SuppressActivation = true;
+Check(!await router.LoginAsync(order, default), "HTTP success is not reported as connected without active session");
+handler.SuppressActivation = false;
+handler.FailAfterLogin = true;
+try
+{
+    await router.LoginAsync(order, default);
+    throw new Exception("Expected lost login response");
+}
+catch (HttpRequestException)
+{
+    Check(true, "lost login response remains retryable");
+}
+var loginCount = handler.LoginCount;
+Check(await router.LoginAsync(order, default) && handler.LoginCount == loginCount,
+    "retry reconciles active session after lost login response");
+
 handler.User["uptime"] = "1h";
 
 Check((await router.StatusAsync(order, default)).Expired, "router reports consumed allowance");
+
+Check(!await router.LoginAsync(order, default) && handler.LoginCount == loginCount,
+    "exhausted allowance never receives a new login");
+
+handler.User["uptime"] = "30m";
+await router.RevokeAsync(order, default);
+Check(handler.User["disabled"] == "true" && !handler.Active,
+    "refund disables the user and removes the active session");
+Check(handler.RevokePaths.SequenceEqual(new[] { "/rest/ip/hotspot/user/*1", "/rest/ip/hotspot/active/*2" }),
+    "RouterOS record IDs retain the literal asterisk for PATCH and DELETE");
+handler.User["disabled"] = "false";
 
 handler.User["mac-address"] = "02:00:00:00:00:09";
 
@@ -186,11 +281,151 @@ await Reject(() => router.EnsureUserAsync(order, default), "deleted provisioned 
 
 Check(handler.PutCount == 1, "no new grant after missing provisioned user");
 
+// Exercise the actual reconciliation service; only HTTP and persistence are replaced.
+var purchase = new NetworkOrder
+{
+    Id = Guid.NewGuid().ToString("N"),
+    UserId = 1,
+    Price = 5m,
+    Minutes = 90,
+    Mac = "02:11:22:33:44:55",
+    Address = "192.168.88.10",
+    Gateway = "lab"
+};
+var paymentHandler = new FakePayment(purchase.Id);
+var networkHandler = new FakeRouter();
+var factory = new FakeFactory(networkHandler, paymentHandler);
+var networkService = new RouterOsHotspot(factory, Options.Create(options), new EphemeralDataProtectionProvider());
+purchase.ProtectedPassword = networkService.ProtectPassword("purchase-secret");
+var store = new MemoryOrderStore(purchase);
+var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+{
+    ["MercadoPago:AccessToken"] = "test-only-token"
+}).Build();
+var reconciliation = new PaymentReconciliation(
+    store,
+    new MercadoPagoPayments(factory, configuration),
+    networkService,
+    Options.Create(paymentOptions),
+    NullLogger<PaymentReconciliation>.Instance);
+
+Check(await reconciliation.ProcessAsync("12345", default)
+    && networkHandler.PutCount == 0 && networkHandler.LoginCount == 0,
+    "reconciliation retries a pending payment without network access");
+
+paymentHandler.Status = "approved";
+paymentHandler.Amount = 1m;
+Check(!await reconciliation.ProcessAsync("12345", default) && networkHandler.PutCount == 0,
+    "approved payment with wrong amount cannot provision or connect");
+
+paymentHandler.Amount = 5m;
+networkHandler.HostPresent = false;
+Check(await reconciliation.ProcessAsync("12345", default)
+    && store.Order.AccessStatus == "ready" && networkHandler.PutCount == 1 && networkHandler.LoginCount == 0,
+    "approval persists the user and retries connection while the device is offline");
+Check(networkHandler.User!["limit-uptime"] == "90m", "reconciliation uses the purchased plan duration");
+
+networkHandler.HostPresent = true;
+networkHandler.FailAfterLogin = true;
+try
+{
+    await reconciliation.ProcessAsync("12345", default);
+    throw new Exception("Expected login transport failure");
+}
+catch (HttpRequestException)
+{
+    Check(store.Order.AccessStatus == "ready", "user creation is persisted before attempting login");
+}
+
+Check(!await reconciliation.ProcessAsync("12345", default)
+    && networkHandler.Active && networkHandler.PutCount == 1 && networkHandler.LoginCount == 1,
+    "approved payment automatically connects and reconciles a lost response without new credit");
+Check(!await reconciliation.ProcessAsync("12345", default)
+    && networkHandler.PutCount == 1 && networkHandler.LoginCount == 1,
+    "duplicate approval neither recreates the user nor restarts the session");
+
+networkHandler.User["uptime"] = "1h30m";
+Check(!await reconciliation.ProcessAsync("12345", default) && networkHandler.LoginCount == 1,
+    "duplicate approval after expiry cannot renew access");
+
+paymentHandler.Status = "refunded";
+Check(!await reconciliation.ProcessAsync("12345", default)
+    && store.Order.AccessStatus == "revoked" && networkHandler.User["disabled"] == "true" && !networkHandler.Active,
+    "confirmed refund revokes the account and disconnects its session");
+
+paymentHandler.Status = "approved";
+Check(!await reconciliation.ProcessAsync("12345", default)
+    && store.Order.AccessStatus == "revoked" && networkHandler.LoginCount == 1,
+    "later approved notification cannot restore a revoked purchase");
+
 Console.WriteLine($"{count} checks passed. HTTP transport is simulated; no router, database or payment was contacted.");
 
-sealed class FakeFactory(HttpMessageHandler handler) : IHttpClientFactory
+sealed class FakeFactory(HttpMessageHandler handler, HttpMessageHandler? paymentHandler = null) : IHttpClientFactory
 {
-    public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+    public HttpClient CreateClient(string name)
+    {
+        return name == "MercadoPago"
+            ? new HttpClient(paymentHandler!, disposeHandler: false) { BaseAddress = new Uri("https://api.mercadopago.com/") }
+            : new HttpClient(handler, disposeHandler: false);
+    }
+}
+
+sealed class FakePayment(string reference) : HttpMessageHandler
+{
+    public string Status = "pending";
+
+    public decimal Amount = 5m;
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (request.Method != HttpMethod.Get || request.RequestUri!.AbsolutePath != "/v1/payments/12345")
+        {
+            throw new Exception("Unexpected payment request");
+        }
+
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new
+            {
+                id = 12345,
+                external_reference = reference,
+                transaction_amount = Amount,
+                currency_id = "BRL",
+                collector_id = 123,
+                live_mode = false,
+                status = Status
+            })
+        });
+    }
+}
+
+sealed class MemoryOrderStore(NetworkOrder order) : INetworkOrderStore
+{
+    public NetworkOrder Order = order;
+
+    public Task<IAsyncDisposable> LockAsync(string id, CancellationToken ct)
+    {
+        return Task.FromResult<IAsyncDisposable>(new NoopLock());
+    }
+
+    public Task<NetworkOrder?> GetAsync(string id, CancellationToken ct)
+    {
+        return Task.FromResult(id == Order.Id ? JsonSerializer.Deserialize<NetworkOrder>(JsonSerializer.Serialize(Order)) : null);
+    }
+
+    public Task SaveAsync(NetworkOrder value, CancellationToken ct, bool enqueue = false)
+    {
+        Order = JsonSerializer.Deserialize<NetworkOrder>(JsonSerializer.Serialize(value))!;
+        return Task.CompletedTask;
+    }
+
+    private sealed class NoopLock : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync()
+        {
+            return ValueTask.CompletedTask;
+        }
+    }
 }
 
 sealed class FakeRouter : HttpMessageHandler
@@ -203,9 +438,27 @@ sealed class FakeRouter : HttpMessageHandler
 
     public bool DuplicateHost;
 
+    public bool HostPresent = true;
+
+    public string HostAddress = "192.168.88.10";
+
+    public bool Active;
+
+    public int LoginCount;
+
+    public bool FailAfterLogin;
+
+    public bool SuppressActivation;
+
+    public Dictionary<string, string>? LoginBody;
+
+    public List<string> RevokePaths = [];
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        if (request.RequestUri!.Scheme != "https" || request.Headers.Authorization?.Scheme != "Basic")
+        if (request.RequestUri!.Scheme != "https"
+            || request.Headers.Authorization?.Scheme != "Basic"
+            || request.Headers.Authorization.Parameter != "c2VydmljZTpzZWNyZXQ=")
         {
             throw new Exception("Incorrect RouterOS authentication");
         }
@@ -218,11 +471,11 @@ sealed class FakeRouter : HttpMessageHandler
         {
             var host = new Dictionary<string, string>
             {
-                ["address"] = "192.168.88.10",
+                ["address"] = HostAddress,
                 ["server"] = "guest",
                 ["mac-address"] = "02:11:22:33:44:55"
             };
-            result = DuplicateHost ? new[]
+            result = !HostPresent ? Array.Empty<Dictionary<string, string>>() : DuplicateHost ? new[]
             {
                 host,
                 host
@@ -260,9 +513,48 @@ sealed class FakeRouter : HttpMessageHandler
         {
             result = User is null ? Array.Empty<Dictionary<string, string>>() : new[] { User };
         }
+        else if (request.Method == HttpMethod.Post && path.EndsWith("/active/login"))
+        {
+            LoginCount++;
+            LoginBody = JsonSerializer.Deserialize<Dictionary<string, string>>(
+                await request.Content!.ReadAsStringAsync(cancellationToken))!;
+            Active = !SuppressActivation;
+
+            if (FailAfterLogin)
+            {
+                FailAfterLogin = false;
+                throw new HttpRequestException("Simulated lost login response");
+            }
+
+            result = Array.Empty<object>();
+        }
+        else if (request.Method == HttpMethod.Patch && path == "/rest/ip/hotspot/user/*1")
+        {
+            RevokePaths.Add(path);
+            var body = JsonSerializer.Deserialize<Dictionary<string, string>>(
+                await request.Content!.ReadAsStringAsync(cancellationToken))!;
+            User!["disabled"] = body["disabled"];
+            result = User;
+        }
+        else if (request.Method == HttpMethod.Delete && path == "/rest/ip/hotspot/active/*2")
+        {
+            RevokePaths.Add(path);
+            Active = false;
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
+        }
         else if (path.EndsWith("/active"))
         {
-            result = Array.Empty<object>();
+            result = Active ? new[]
+            {
+                new Dictionary<string, string>
+                {
+                    [".id"] = "*2",
+                    ["user"] = User!["name"],
+                    ["address"] = HostAddress,
+                    ["mac-address"] = User["mac-address"],
+                    ["server"] = User["server"]
+                }
+            } : Array.Empty<Dictionary<string, string>>();
         }
         else
         {

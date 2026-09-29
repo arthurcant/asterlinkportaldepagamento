@@ -1,10 +1,13 @@
+using System.Net;
+using System.Net.Sockets;
+
 namespace asterlinkportaldepagamento.Services;
 
 public sealed class NetworkOptions
 {
     public bool Enabled { get; set; }
 
-    public string GatewayId { get; set; } = "arena-lab";
+    public string GatewayId { get; set; } = "";
 
     public string RestUrl { get; set; } = "";
 
@@ -16,55 +19,44 @@ public sealed class NetworkOptions
 
     public string UserProfile { get; set; } = "";
 
-    public string LoginUrl { get; set; } = "";
-
     public string ClientSubnet { get; set; } = "";
 
-    public string WebhookUrl { get; set; } = "";
+    public int RequestTimeoutSeconds { get; set; } = 15;
 
-    public string CollectorId { get; set; } = "";
-
-    public bool LiveMode { get; set; }
+    public bool AllowInsecureHttpForDevelopment { get; set; }
 
     public void Validate()
     {
         if (!Enabled)
         {
-            throw new InvalidOperationException("Integração de rede desativada.");
+            throw new InvalidOperationException("Integração REST do RouterOS desativada.");
         }
 
-        foreach (var url in new[]
+        if (!Uri.TryCreate(RestUrl, UriKind.Absolute, out var uri)
+            || (uri.Scheme != "https" && !(uri.Scheme == "http" && AllowInsecureHttpForDevelopment))
+            || !string.IsNullOrEmpty(uri.UserInfo)
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment)
+            || uri.AbsolutePath.TrimEnd('/') != "/rest")
         {
-            RestUrl,
-            LoginUrl,
-            WebhookUrl
-        })
-        {
-            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https"
-
-                || !string.IsNullOrEmpty(uri.UserInfo))
-            {
-                throw new InvalidOperationException("Configure URLs HTTPS válidas para a rede e o webhook.");
-            }
+            throw new InvalidOperationException("Configure Network:RestUrl terminado em /rest/. HTTP exige permissão explícita em desenvolvimento.");
         }
 
-        if (new Uri(RestUrl).AbsolutePath.TrimEnd('/') != "/rest")
+        if (new[] { GatewayId, Username, Password, HotspotServer, UserProfile }.Any(string.IsNullOrWhiteSpace)
+            || Username.Contains(':'))
         {
-            throw new InvalidOperationException("RestUrl deve terminar em /rest/.");
+            throw new InvalidOperationException("Preencha GatewayId, Username, Password, HotspotServer e UserProfile em Network.");
         }
 
-        if (new[]
+        if (!IPNetwork.TryParse(ClientSubnet, out var subnet)
+            || subnet.BaseAddress.AddressFamily != AddressFamily.InterNetwork)
         {
-            GatewayId,
-            Username,
-            Password,
-            HotspotServer,
-            UserProfile,
-            ClientSubnet,
-            CollectorId
-        }.Any(string.IsNullOrWhiteSpace))
+            throw new InvalidOperationException("Network:ClientSubnet deve conter a rede IPv4/CIDR real dos clientes HotSpot.");
+        }
+
+        if (RequestTimeoutSeconds is < 1 or > 60)
         {
-            throw new InvalidOperationException("Configuração da integração de rede incompleta.");
+            throw new InvalidOperationException("Network:RequestTimeoutSeconds deve estar entre 1 e 60.");
         }
     }
 }

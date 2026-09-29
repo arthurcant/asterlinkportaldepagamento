@@ -20,6 +20,7 @@ public sealed class CheckoutController(
     RouterOsHotspot router,
     IDataProtectionProvider protection,
     IOptions<NetworkOptions> configured,
+    IOptions<MercadoPagoOptions> paymentOptions,
     IConfiguration configuration) : Controller
 {
     private long UserId => long.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -52,7 +53,15 @@ public sealed class CheckoutController(
             });
         }
 
-        configured.Value.Validate();
+        try
+        {
+            configured.Value.Validate();
+            paymentOptions.Value.Validate();
+        }
+        catch (InvalidOperationException exception)
+        {
+            return StatusCode(503, new { message = exception.Message });
+        }
 
         if (string.IsNullOrWhiteSpace(configuration["MercadoPago:WebhookSecret"]))
         {
@@ -175,7 +184,7 @@ public sealed class CheckoutController(
                 ["transaction_amount"] = plan.Price,
                 ["description"] = "Áster Link - " + plan.Name,
                 ["external_reference"] = id,
-                ["notification_url"] = configured.Value.WebhookUrl,
+                ["notification_url"] = paymentOptions.Value.WebhookUrl,
                 ["payment_method_id"] = method,
                 ["payer"] = payer
             };
@@ -232,7 +241,7 @@ public sealed class CheckoutController(
 
         if (paymentId.Length == 0 || !paymentId.All(char.IsAsciiDigit)
 
-            || !MercadoPagoPayments.Matches(payment, order, configured.Value))
+            || !MercadoPagoPayments.Matches(payment, order, paymentOptions.Value))
         {
             return StatusCode(
                 502,
@@ -341,7 +350,7 @@ public sealed class CheckoutController(
 
         var payment = await payments.GetAsync(order.PaymentId, ct);
 
-        if (!MercadoPagoPayments.Matches(payment, order, configured.Value)
+        if (!MercadoPagoPayments.Matches(payment, order, paymentOptions.Value)
 
             || RouterOsHotspot.Value(payment, "status") != "approved")
         {
@@ -355,9 +364,12 @@ public sealed class CheckoutController(
             return Conflict("O acesso está esgotado ou indisponível.");
         }
 
-        return View(
-            "HotspotLogin",
-            new HotspotLoginViewModel(configured.Value.LoginUrl, order.Username, router.Password(order)));
+        if (!await router.LoginAsync(order, ct))
+        {
+            return Conflict("Dispositivo ausente ou acesso esgotado. Conecte-se à rede HotSpot e tente novamente.");
+        }
+
+        return RedirectToAction(nameof(Order), new { id = order.Id });
     }
 
     private async Task<NetworkOrder?> OwnedAsync(string id, CancellationToken ct)

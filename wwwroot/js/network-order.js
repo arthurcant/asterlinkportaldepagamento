@@ -5,7 +5,7 @@
     const messages = {
         waiting_payment: 'Aguardando confirmação do pagamento e preparação do acesso.',
         provisioning: 'Pagamento aprovado. Preparando seu acesso na rede.',
-        ready: 'Pagamento aprovado. Seu acesso está preparado: clique para conectar.',
+        ready: 'Pagamento aprovado. Conectando seu dispositivo à rede. Você também pode tentar conectar pelo botão.',
         connected: 'Dispositivo conectado. O roteador controla o tempo restante.',
         expired: 'O acesso foi esgotado ou está indisponível no roteador.',
         revoked: 'O acesso foi cancelado.',

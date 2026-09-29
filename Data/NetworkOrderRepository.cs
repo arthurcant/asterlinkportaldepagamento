@@ -4,7 +4,7 @@ using MySqlConnector;
 
 namespace asterlinkportaldepagamento.Data;
 
-public sealed class NetworkOrderRepository(IConfiguration configuration)
+public sealed class NetworkOrderRepository(IConfiguration configuration) : INetworkOrderStore
 {
     private string ConnectionString => configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Conexão não configurada.");

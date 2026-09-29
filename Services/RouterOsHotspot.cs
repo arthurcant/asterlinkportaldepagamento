@@ -81,6 +81,9 @@ public sealed class RouterOsHotspot(
 
     public async Task EnsureUserAsync(NetworkOrder order, CancellationToken ct)
     {
+        RequireApprovedPayment(order);
+        Options.Validate();
+
         if (order.Gateway != Options.GatewayId || order.Minutes <= 0 || !ValidMac(order.Mac))
         {
             throw new InvalidOperationException("Pedido não pertence ao gateway ou possui limites inválidos.");
@@ -106,6 +109,8 @@ public sealed class RouterOsHotspot(
                 || Value(users[0], "server") != Options.HotspotServer
 
                 || Value(users[0], "profile") != Options.UserProfile
+
+                || Value(users[0], "comment") != "AsterLink order " + order.Id
 
                 || ParseDuration(Value(users[0], "limit-uptime")) != TimeSpan.FromMinutes(order.Minutes)
 
@@ -141,6 +146,70 @@ public sealed class RouterOsHotspot(
     private Task<JsonElement> UsersAsync(NetworkOrder order, CancellationToken ct)
     => RequestAsync(HttpMethod.Get, "ip/hotspot/user?name=" + Uri.EscapeDataString(order.Username), null, ct);
 
+    private static void RequireApprovedPayment(NetworkOrder order)
+    {
+        if (order.PaymentStatus != "approved" || order.AccessStatus == "revoked")
+        {
+            throw new InvalidOperationException("Somente um pagamento aprovado pode liberar acesso à rede.");
+        }
+    }
+
+    public async Task<bool> LoginAsync(NetworkOrder order, CancellationToken ct)
+    {
+        RequireApprovedPayment(order);
+
+        if (order.Gateway != Options.GatewayId || order.Minutes <= 0 || !ValidMac(order.Mac))
+        {
+            throw new InvalidOperationException("Pedido não pertence ao gateway ou possui limites inválidos.");
+        }
+
+        var status = await StatusAsync(order, ct);
+
+        if (status.Expired || status.Active)
+        {
+            return status.Active;
+        }
+
+        // Resolve the current address from the router, not a stale IP stored at checkout.
+        var hosts = await RequestAsync(
+            HttpMethod.Get,
+            "ip/hotspot/host?mac-address=" + Uri.EscapeDataString(order.Mac),
+            null,
+            ct);
+        var matching = hosts.EnumerateArray()
+            .Where(host => string.Equals(Value(host, "mac-address"), order.Mac, StringComparison.OrdinalIgnoreCase)
+                && Value(host, "server") == Options.HotspotServer)
+            .ToArray();
+
+        if (matching.Length == 0)
+        {
+            return false;
+        }
+
+        if (matching.Length != 1
+            || !IPAddress.TryParse(Value(matching[0], "address"), out var address)
+            || !System.Net.IPNetwork.Parse(Options.ClientSubnet).Contains(address))
+        {
+            throw new InvalidOperationException("O dispositivo não foi identificado de forma única na rede HotSpot.");
+        }
+
+        // RouterOS CLI: /ip/hotspot/active/login (ip, mac-address, user, password).
+        await RequestAsync(
+            HttpMethod.Post,
+            "ip/hotspot/active/login",
+            new Dictionary<string, string>
+            {
+                ["ip"] = address.ToString(),
+                ["mac-address"] = order.Mac,
+                ["user"] = order.Username,
+                ["password"] = Password(order)
+            },
+            ct);
+
+        // A successful HTTP response alone is not proof that the device is connected.
+        return (await StatusAsync(order, ct)).Active;
+    }
+
     public async Task<(bool Active, bool Expired)> StatusAsync(NetworkOrder order, CancellationToken ct)
     {
         var users = await UsersAsync(order, ct);
@@ -148,6 +217,17 @@ public sealed class RouterOsHotspot(
         if (users.GetArrayLength() != 1)
         {
             return (false, true);
+        }
+
+        if (order.Gateway != Options.GatewayId
+            || order.Minutes <= 0
+            || Value(users[0], "mac-address") != order.Mac
+            || Value(users[0], "server") != Options.HotspotServer
+            || Value(users[0], "profile") != Options.UserProfile
+            || Value(users[0], "comment") != "AsterLink order " + order.Id
+            || ParseDuration(Value(users[0], "limit-uptime")) != TimeSpan.FromMinutes(order.Minutes))
+        {
+            throw new InvalidOperationException("Usuário HotSpot diverge do pedido; acesso recusado.");
         }
 
         var expired = Value(users[0], "disabled") == "true"
@@ -168,7 +248,7 @@ public sealed class RouterOsHotspot(
         {
             await RequestAsync(
                 HttpMethod.Patch,
-                "ip/hotspot/user/" + Uri.EscapeDataString(Value(user, ".id")),
+                "ip/hotspot/user/" + RecordId(user),
                 new
             {
                 disabled = "true"
@@ -180,8 +260,14 @@ public sealed class RouterOsHotspot(
 
         foreach (var session in active.EnumerateArray())
         {
-            await RequestAsync(HttpMethod.Delete, "ip/hotspot/active/" + Uri.EscapeDataString(Value(session, ".id")), null, ct);
+            await RequestAsync(HttpMethod.Delete, "ip/hotspot/active/" + RecordId(session), null, ct);
         }
+    }
+
+    private static string RecordId(JsonElement record)
+    {
+        // RouterOS REST requires the literal asterisk in record IDs, not %2A.
+        return Uri.EscapeDataString(Value(record, ".id")).Replace("%2A", "*", StringComparison.OrdinalIgnoreCase);
     }
 
     public static string Value(JsonElement item, string name) => item.TryGetProperty(name, out var value) ? value.ToString() : "";

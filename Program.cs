@@ -40,23 +40,20 @@ builder.Services.AddScoped<IAccessSessionRepository, AccessSessionRepository>();
 
 builder.Services.AddSingleton<IPasswordService, PasswordService>();
 
-var dataProtection = builder.Services.AddDataProtection();
+builder.Services.AddDataProtection();
 
-var keyDirectory = builder.Configuration["Network:DataProtectionKeyPath"];
+builder.Services.AddOptions<NetworkOptions>()
+    .Bind(builder.Configuration.GetSection("Network"))
+    .Validate(
+        options => !options.AllowInsecureHttpForDevelopment || builder.Environment.IsDevelopment(),
+        "HTTP para RouterOS só é permitido no ambiente Development. Use HTTPS nos demais ambientes.")
+    .ValidateOnStart();
 
-if (!string.IsNullOrWhiteSpace(keyDirectory))
-{
-    dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
-
-    if (OperatingSystem.IsWindows())
-    {
-        dataProtection.ProtectKeysWithDpapi();
-    }
-}
-
-builder.Services.Configure<NetworkOptions>(builder.Configuration.GetSection("Network"));
+builder.Services.Configure<MercadoPagoOptions>(builder.Configuration.GetSection("MercadoPago"));
 
 builder.Services.AddScoped<NetworkOrderRepository>();
+
+builder.Services.AddScoped<INetworkOrderStore>(services => services.GetRequiredService<NetworkOrderRepository>());
 
 builder.Services.AddScoped<MercadoPagoPayments>();
 
@@ -66,7 +63,12 @@ builder.Services.AddScoped<PaymentReconciliation>();
 
 builder.Services.AddHostedService<NetworkProvisioningWorker>();
 
-builder.Services.AddHttpClient("RouterOS", client => client.Timeout = TimeSpan.FromSeconds(15))
+builder.Services.AddHttpClient("RouterOS", (services, client) =>
+{
+    var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<NetworkOptions>>().Value;
+    options.Validate();
+    client.Timeout = TimeSpan.FromSeconds(options.RequestTimeoutSeconds);
+})
 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
 var app = builder.Build();

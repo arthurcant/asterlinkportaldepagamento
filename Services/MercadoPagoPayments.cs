@@ -52,7 +52,7 @@ public sealed class MercadoPagoPayments(IHttpClientFactory clients, IConfigurati
         return SendAsync(HttpMethod.Get, "v1/payments/" + id, null, null, ct);
     }
 
-    public static bool Matches(JsonElement payment, NetworkOrder order, NetworkOptions options)
+    public static bool Matches(JsonElement payment, NetworkOrder order, MercadoPagoOptions options)
     => payment.TryGetProperty("external_reference", out var reference)
 
         && reference.GetString() == order.Id

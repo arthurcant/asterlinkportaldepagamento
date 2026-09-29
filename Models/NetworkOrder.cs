@@ -34,5 +34,3 @@ public sealed class NetworkOrder
 }
 
 public sealed record DeviceContext(string Mac, string Address, string Gateway, DateTimeOffset Expires);
-
-public sealed record HotspotLoginViewModel(string LoginUrl, string Username, string Password);
