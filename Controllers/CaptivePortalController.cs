@@ -14,7 +14,7 @@ public sealed class CaptivePortalController(RouterOsHotspot router, IDataProtect
     public async Task<IActionResult> Entry(CancellationToken ct)
     {
         try
-        {
+        { // antes da alteração do sistema ser todo alterado para usar somente IP e não MAC
             var context = await router.CaptureAsync(HttpContext.Connection.RemoteIpAddress, ct);
             var token = protection.CreateProtector("AsterLink.Device.v1").Protect(JsonSerializer.Serialize(context));
             Response.Cookies.Append(
