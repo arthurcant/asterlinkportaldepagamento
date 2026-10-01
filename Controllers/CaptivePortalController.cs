@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text.Json;
 using asterlinkportaldepagamento.Models;
@@ -10,24 +12,27 @@ namespace asterlinkportaldepagamento.Controllers;
 [Route("rede")]
 public sealed class CaptivePortalController(RouterOsHotspot router, IDataProtectionProvider protection) : Controller
 {
+    private const string DeviceProtectionPurpose = "AsterLink.Device.IPv4.v2";
+
     [HttpGet("entrada")]
     public async Task<IActionResult> Entry(CancellationToken ct)
     {
         try
-        { // antes da alteração do sistema ser todo alterado para usar somente IP e não MAC
+        {
             var context = await router.CaptureAsync(HttpContext.Connection.RemoteIpAddress, ct);
-            var token = protection.CreateProtector("AsterLink.Device.v1").Protect(JsonSerializer.Serialize(context));
+            var token = protection.CreateProtector(DeviceProtectionPurpose).Protect(JsonSerializer.Serialize(context));
             Response.Cookies.Append(
                 "AsterLink.Device",
                 token,
                 new CookieOptions
-            {
-                HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.Lax,
-                MaxAge = TimeSpan.FromHours(2),
-                IsEssential = true
-            });
+                {
+                    HttpOnly = true,
+                    Secure = true,
+                    SameSite = SameSiteMode.Lax,
+                    MaxAge = TimeSpan.FromHours(2),
+                    IsEssential = true,
+                    Path = "/"
+                });
 
             return Redirect("/conta");
         }
@@ -46,9 +51,18 @@ public sealed class CaptivePortalController(RouterOsHotspot router, IDataProtect
 
         try
         {
-            var context = JsonSerializer.Deserialize<DeviceContext>(protection.CreateProtector("AsterLink.Device.v1").Unprotect(token));
+            var context = JsonSerializer.Deserialize<DeviceContext>(protection.CreateProtector(DeviceProtectionPurpose).Unprotect(token));
 
-            return context?.Expires > DateTimeOffset.UtcNow ? context : null;
+            if (context is null || context.Expires <= DateTimeOffset.UtcNow
+                || string.IsNullOrWhiteSpace(context.Gateway)
+                || !IPAddress.TryParse(context.Address, out var address)
+                || address.AddressFamily != AddressFamily.InterNetwork
+                || address.ToString() != context.Address)
+            {
+                return null;
+            }
+
+            return context;
         }
         catch (Exception exception) when (exception is CryptographicException or JsonException)
         {

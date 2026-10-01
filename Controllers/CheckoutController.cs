@@ -48,9 +48,9 @@ public sealed class CheckoutController(
             return StatusCode(
                 503,
                 new
-            {
-                message = "O acesso à rede ainda não foi configurado. Nenhuma cobrança foi iniciada."
-            });
+                {
+                    message = "O acesso à rede ainda não foi configurado. Nenhuma cobrança foi iniciada."
+                });
         }
 
         try
@@ -60,7 +60,10 @@ public sealed class CheckoutController(
         }
         catch (InvalidOperationException exception)
         {
-            return StatusCode(503, new { message = exception.Message });
+            return StatusCode(503, new
+            {
+                message = exception.Message
+            });
         }
 
         if (string.IsNullOrWhiteSpace(configuration["MercadoPago:WebhookSecret"]))
@@ -68,9 +71,9 @@ public sealed class CheckoutController(
             return StatusCode(
                 503,
                 new
-            {
-                message = "Configure a assinatura das notificações antes de iniciar cobranças."
-            });
+                {
+                    message = "Configure a assinatura das notificações antes de iniciar cobranças."
+                });
         }
 
         if (formData.ValueKind != JsonValueKind.Object)
@@ -96,14 +99,17 @@ public sealed class CheckoutController(
         }
         catch (InvalidOperationException exception)
         {
-            return BadRequest(new { message = exception.Message });
+            return BadRequest(new
+            {
+                message = exception.Message
+            });
         }
 
-        if (device.Mac != current.Mac || device.Gateway != current.Gateway)
+        if (device.Address != current.Address || device.Gateway != current.Gateway)
         {
             return BadRequest(new
             {
-                message = "O dispositivo mudou. Entre novamente pelo portal da rede."
+                message = "O endereço IPv4 ou a rede mudou. Entre novamente pelo portal da rede."
             });
         }
 
@@ -121,7 +127,7 @@ public sealed class CheckoutController(
 
         if (order is not null
 
-            && (order.UserId != UserId || order.PlanId != planId || order.Mac != current.Mac
+            && (order.UserId != UserId || order.PlanId != planId || order.Address != current.Address
 
                 || order.Gateway != current.Gateway))
         {
@@ -210,7 +216,6 @@ public sealed class CheckoutController(
                 PlanName = plan.Name,
                 Price = plan.Price,
                 Minutes = plan.DurationMinutes,
-                Mac = current.Mac,
                 Address = current.Address,
                 Gateway = current.Gateway,
                 ProtectedPassword = router.ProtectPassword(Convert.ToHexString(RandomNumberGenerator.GetBytes(24))),
@@ -232,9 +237,9 @@ public sealed class CheckoutController(
             return StatusCode(
                 502,
                 new
-            {
-                message = "Não foi possível confirmar a cobrança. Repita este mesmo pedido; não inicie outra compra."
-            });
+                {
+                    message = "Não foi possível confirmar a cobrança. Repita este mesmo pedido; não inicie outra compra."
+                });
         }
 
         var paymentId = RouterOsHotspot.Value(payment, "id");
@@ -246,9 +251,9 @@ public sealed class CheckoutController(
             return StatusCode(
                 502,
                 new
-            {
-                message = "A resposta do pagamento exige verificação. Acesso não liberado."
-            });
+                {
+                    message = "A resposta do pagamento exige verificação. Acesso não liberado."
+                });
         }
 
         order.PaymentId = paymentId;
@@ -343,7 +348,7 @@ public sealed class CheckoutController(
 
         var device = await router.CaptureAsync(HttpContext.Connection.RemoteIpAddress, ct);
 
-        if (device.Mac != order.Mac || device.Gateway != order.Gateway)
+        if (device.Address != order.Address || device.Gateway != order.Gateway)
         {
             return Forbid();
         }
@@ -369,7 +374,10 @@ public sealed class CheckoutController(
             return Conflict("Dispositivo ausente ou acesso esgotado. Conecte-se à rede HotSpot e tente novamente.");
         }
 
-        return RedirectToAction(nameof(Order), new { id = order.Id });
+        return RedirectToAction(nameof(Order), new
+        {
+            id = order.Id
+        });
     }
 
     private async Task<NetworkOrder?> OwnedAsync(string id, CancellationToken ct)

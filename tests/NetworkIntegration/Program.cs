@@ -66,10 +66,6 @@ Check(RouterOsHotspot.ParseDuration("1h30m") == TimeSpan.FromMinutes(90), "Route
 
 Check(RouterOsHotspot.ParseDuration("01:00:00") == TimeSpan.FromHours(1), "RouterOS clock duration");
 
-Check(!RouterOsHotspot.ValidMac("01:00:00:00:00:01"), "reject multicast MAC");
-
-Check(RouterOsHotspot.ValidMac("02:11:22:33:44:55"), "accept locally administered device MAC");
-
 var options = new NetworkOptions
 {
     Enabled = true,
@@ -94,7 +90,7 @@ var order = new NetworkOrder
     Id = Guid.NewGuid().ToString("N"),
     UserId = 1,
     Price = 5m,
-    Mac = "02:11:22:33:44:55",
+    Address = "192.168.88.10",
     Minutes = 60,
     Gateway = "lab"
 };
@@ -164,7 +160,22 @@ await Reject(
 
 var device = await router.CaptureAsync(IPAddress.Parse("192.168.88.10"), default);
 
-Check(device.Mac == order.Mac && device.Gateway == "lab", "capture from router host table");
+Check(device.Address == "192.168.88.10" && device.Gateway == "lab",
+    "capture IPv4 from host table without a hardware address");
+
+Check((await router.CaptureAsync(IPAddress.Parse("::ffff:192.168.88.10"), default)).Address == "192.168.88.10",
+    "normalize IPv4 mapped by ASP.NET without enabling native IPv6");
+await Reject(() => router.CaptureAsync(IPAddress.Parse("2001:db8::10"), default), "reject native IPv6");
+await Reject(() => router.CaptureAsync(null, default), "reject missing source IP");
+handler.HostPresent = false;
+await Reject(() => router.CaptureAsync(IPAddress.Parse("192.168.88.10"), default), "reject IP absent from HotSpot");
+handler.HostPresent = true;
+handler.HostServer = "another-server";
+await Reject(() => router.CaptureAsync(IPAddress.Parse("192.168.88.10"), default), "reject IP on another HotSpot server");
+handler.HostServer = "guest";
+Check(handler.HostQueries.All(query => query.Contains("address=192.168.88.10")
+        && query.Contains(".proplist=") && !query.Contains("mac-address")),
+    "host requests use an IPv4 filter and explicit fields only");
 
 handler.DuplicateHost = true;
 
@@ -185,6 +196,14 @@ Check(handler.PutCount == 0, "no network grant before payment approval");
 
 order.PaymentStatus = "approved";
 
+foreach (var invalidAddress in new[] { "", "not-an-ip", "2001:db8::10", "192.168.99.10" })
+{
+    order.Address = invalidAddress;
+    await Reject(() => router.EnsureUserAsync(order, default), "invalid purchase IP cannot provision: " + invalidAddress);
+    await Reject(() => router.LoginAsync(order, default), "invalid purchase IP cannot log in: " + invalidAddress);
+}
+order.Address = "192.168.88.10";
+
 handler.FailAfterCreate = true;
 
 try
@@ -203,18 +222,17 @@ await router.EnsureUserAsync(order, default);
 Check(handler.PutCount == 1, "retry reconciles existing user without resetting time");
 
 Check(
-    handler.User!["limit-uptime"] == "60m" && handler.User["mac-address"] == order.Mac,
-    "purchase duration and MAC sent to router");
+    handler.User!["limit-uptime"] == "60m" && !handler.User.ContainsKey("mac-address"),
+    "purchase duration sent without a hardware address");
 
-order.Address = "192.168.88.99";
 Check(await router.LoginAsync(order, default), "approved purchase connects through REST");
 Check(
     handler.LoginBody!["ip"] == "192.168.88.10"
-        && handler.LoginBody["mac-address"] == "02:11:22:33:44:55"
+        && !handler.LoginBody.ContainsKey("mac-address")
         && handler.LoginBody["user"] == order.Username
         && handler.LoginBody["password"] == "random-purchase-password"
         && !handler.LoginBody.ContainsKey("server"),
-    "login uses documented fields and current router address, not stale checkout IP");
+    "login sends only IP and purchase credentials");
 Check(await router.LoginAsync(order, default) && handler.LoginCount == 1,
     "repeated login keeps an existing session and its remaining time");
 
@@ -231,11 +249,28 @@ Check(!await router.LoginAsync(order, default) && handler.LoginCount == 1,
     "offline device does not trigger login against a stale address");
 handler.HostPresent = true;
 handler.DuplicateHost = true;
-await Reject(() => router.LoginAsync(order, default), "ambiguous MAC cannot log in");
+await Reject(() => router.LoginAsync(order, default), "ambiguous IPv4 cannot log in");
 handler.DuplicateHost = false;
 handler.HostAddress = "192.168.99.10";
-await Reject(() => router.LoginAsync(order, default), "login rejects host outside configured subnet");
+Check(!await router.LoginAsync(order, default), "different host address cannot receive the purchase");
 handler.HostAddress = "192.168.88.10";
+
+order.Address = "192.168.88.99";
+await Reject(() => router.LoginAsync(order, default), "a purchase cannot be rebound to another IPv4");
+order.Address = "192.168.88.10";
+
+handler.TranslatedAddress = "192.168.88.200";
+Check(await router.LoginAsync(order, default) && handler.LoginBody!["ip"] == "192.168.88.200",
+    "login uses the translated IPv4 of the original host when HotSpot assigns one");
+Check((await router.StatusAsync(order, default)).Active, "translated IPv4 session is recognized");
+handler.ActiveAddress = "192.168.88.99";
+Check(!(await router.StatusAsync(order, default)).Active, "another IPv4 session is not reported as connected");
+await Reject(() => router.LoginAsync(order, default), "conflicting active session cannot trigger a new login");
+handler.ActiveAddress = null;
+handler.Active = false;
+handler.TranslatedAddress = "192.168.99.200";
+await Reject(() => router.LoginAsync(order, default), "translated address outside client subnet is refused");
+handler.TranslatedAddress = null;
 
 handler.SuppressActivation = true;
 Check(!await router.LoginAsync(order, default), "HTTP success is not reported as connected without active session");
@@ -269,9 +304,12 @@ Check(handler.RevokePaths.SequenceEqual(new[] { "/rest/ip/hotspot/user/*1", "/re
     "RouterOS record IDs retain the literal asterisk for PATCH and DELETE");
 handler.User["disabled"] = "false";
 
-handler.User["mac-address"] = "02:00:00:00:00:09";
+handler.User["comment"] = "AsterLink order " + order.Id;
+await Reject(() => router.EnsureUserAsync(order, default), "legacy user requires review without resetting counters");
 
-await Reject(() => router.EnsureUserAsync(order, default), "existing username with different MAC is rejected");
+handler.User["comment"] = "AsterLink order " + order.Id + " IPv4 192.168.88.99";
+
+await Reject(() => router.EnsureUserAsync(order, default), "existing username bound to another IPv4 is rejected");
 
 handler.User = null;
 
@@ -288,7 +326,6 @@ var purchase = new NetworkOrder
     UserId = 1,
     Price = 5m,
     Minutes = 90,
-    Mac = "02:11:22:33:44:55",
     Address = "192.168.88.10",
     Gateway = "lab"
 };
@@ -357,6 +394,8 @@ paymentHandler.Status = "approved";
 Check(!await reconciliation.ProcessAsync("12345", default)
     && store.Order.AccessStatus == "revoked" && networkHandler.LoginCount == 1,
     "later approved notification cannot restore a revoked purchase");
+
+await IPv4PortalTests.RunAsync(Check, options, paymentOptions);
 
 Console.WriteLine($"{count} checks passed. HTTP transport is simulated; no router, database or payment was contacted.");
 
@@ -442,6 +481,14 @@ sealed class FakeRouter : HttpMessageHandler
 
     public string HostAddress = "192.168.88.10";
 
+    public string HostServer = "guest";
+
+    public string? TranslatedAddress;
+
+    public string? ActiveAddress;
+
+    public List<string> HostQueries = [];
+
     public bool Active;
 
     public int LoginCount;
@@ -469,11 +516,13 @@ sealed class FakeRouter : HttpMessageHandler
 
         if (path.EndsWith("/host"))
         {
+            HostQueries.Add(Uri.UnescapeDataString(request.RequestUri.Query));
             var host = new Dictionary<string, string>
             {
                 ["address"] = HostAddress,
-                ["server"] = "guest",
-                ["mac-address"] = "02:11:22:33:44:55"
+                [".id"] = "*3",
+                ["to-address"] = TranslatedAddress ?? HostAddress,
+                ["server"] = HostServer
             };
             result = !HostPresent ? Array.Empty<Dictionary<string, string>>() : DuplicateHost ? new[]
             {
@@ -550,8 +599,7 @@ sealed class FakeRouter : HttpMessageHandler
                 {
                     [".id"] = "*2",
                     ["user"] = User!["name"],
-                    ["address"] = HostAddress,
-                    ["mac-address"] = User["mac-address"],
+                    ["address"] = ActiveAddress ?? TranslatedAddress ?? HostAddress,
                     ["server"] = User["server"]
                 }
             } : Array.Empty<Dictionary<string, string>>();

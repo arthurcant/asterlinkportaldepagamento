@@ -63,17 +63,12 @@ public sealed class RouterOsHotspot(
         }
 
         var address = source.ToString();
-        var hosts = await RequestAsync(HttpMethod.Get, "ip/hotspot/host?address=" + Uri.EscapeDataString(address), null, ct);
-        var matching = hosts.EnumerateArray().Where(x => Value(x, "address") == address
-            && Value(x, "server") == Options.HotspotServer).ToArray();
-
-        if (matching.Length != 1 || !ValidMac(Value(matching[0], "mac-address")))
+        if (await HostAsync(address, ct) is null)
         {
-            throw new InvalidOperationException("O dispositivo não foi identificado de forma única no HotSpot.");
+            throw new InvalidOperationException("O endereço IPv4 deste dispositivo não foi encontrado no HotSpot. Conecte-se à rede de visitantes.");
         }
 
         return new DeviceContext(
-            Value(matching[0], "mac-address").ToUpperInvariant(),
             address,
             Options.GatewayId,
             DateTimeOffset.UtcNow.AddHours(2));
@@ -82,12 +77,7 @@ public sealed class RouterOsHotspot(
     public async Task EnsureUserAsync(NetworkOrder order, CancellationToken ct)
     {
         RequireApprovedPayment(order);
-        Options.Validate();
-
-        if (order.Gateway != Options.GatewayId || order.Minutes <= 0 || !ValidMac(order.Mac))
-        {
-            throw new InvalidOperationException("Pedido não pertence ao gateway ou possui limites inválidos.");
-        }
+        ValidateOrder(order);
 
         var profiles = await RequestAsync(
             HttpMethod.Get,
@@ -104,13 +94,13 @@ public sealed class RouterOsHotspot(
 
         if (users.GetArrayLength() > 0)
         {
-            if (users.GetArrayLength() != 1 || Value(users[0], "mac-address") != order.Mac
+            if (users.GetArrayLength() != 1 || Value(users[0], "name") != order.Username
 
                 || Value(users[0], "server") != Options.HotspotServer
 
                 || Value(users[0], "profile") != Options.UserProfile
 
-                || Value(users[0], "comment") != "AsterLink order " + order.Id
+                || Value(users[0], "comment") != UserComment(order)
 
                 || ParseDuration(Value(users[0], "limit-uptime")) != TimeSpan.FromMinutes(order.Minutes)
 
@@ -131,20 +121,98 @@ public sealed class RouterOsHotspot(
             HttpMethod.Put,
             "ip/hotspot/user",
             new Dictionary<string, string>
-        {
-            ["name"] = order.Username,
-            ["password"] = Password(order),
-            ["mac-address"] = order.Mac,
-            ["server"] = Options.HotspotServer,
-            ["profile"] = Options.UserProfile,
-            ["limit-uptime"] = order.Minutes.ToString(System.Globalization.CultureInfo.InvariantCulture) + "m",
-            ["comment"] = "AsterLink order " + order.Id
-        },
+            {
+                ["name"] = order.Username,
+                ["password"] = Password(order),
+                ["server"] = Options.HotspotServer,
+                ["profile"] = Options.UserProfile,
+                ["limit-uptime"] = order.Minutes.ToString(System.Globalization.CultureInfo.InvariantCulture) + "m",
+                ["comment"] = UserComment(order)
+            },
             ct);
     }
 
     private Task<JsonElement> UsersAsync(NetworkOrder order, CancellationToken ct)
-    => RequestAsync(HttpMethod.Get, "ip/hotspot/user?name=" + Uri.EscapeDataString(order.Username), null, ct);
+    {
+        return RequestAsync(
+            HttpMethod.Get,
+            "ip/hotspot/user?name=" + Uri.EscapeDataString(order.Username)
+                + "&.proplist=.id,name,server,profile,comment,limit-uptime,uptime,disabled",
+            null,
+            ct);
+    }
+
+    private Task<JsonElement> ActiveAsync(NetworkOrder order, CancellationToken ct)
+    {
+        return RequestAsync(
+            HttpMethod.Get,
+            "ip/hotspot/active?user=" + Uri.EscapeDataString(order.Username)
+                + "&.proplist=.id,user,address,server",
+            null,
+            ct);
+    }
+
+    // The marker also prevents silently adopting users provisioned under an older identity contract.
+    // A HotSpot user's address property assigns a translated IP; it is not a login restriction.
+    private static string UserComment(NetworkOrder order) => "AsterLink order " + order.Id + " IPv4 " + order.Address;
+
+    private bool IsClientAddress(string address)
+    {
+        return IPAddress.TryParse(address, out var parsed)
+            && parsed.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+            && parsed.ToString() == address
+            && System.Net.IPNetwork.Parse(Options.ClientSubnet).Contains(parsed);
+    }
+
+    private void ValidateOrder(NetworkOrder order)
+    {
+        Options.Validate();
+
+        if (order.Gateway != Options.GatewayId || order.Minutes <= 0 || !IsClientAddress(order.Address))
+        {
+            throw new InvalidOperationException("Pedido não pertence ao gateway ou possui IPv4/limites inválidos.");
+        }
+    }
+
+    private async Task<JsonElement?> HostAsync(string address, CancellationToken ct)
+    {
+        var hosts = await RequestAsync(
+            HttpMethod.Get,
+            "ip/hotspot/host?address=" + Uri.EscapeDataString(address)
+                + "&.proplist=.id,address,to-address,server",
+            null,
+            ct);
+        var matching = hosts.EnumerateArray()
+            .Where(host => Value(host, "address") == address && Value(host, "server") == Options.HotspotServer)
+            .ToArray();
+
+        if (matching.Length == 0)
+        {
+            return null;
+        }
+
+        if (matching.Length != 1)
+        {
+            throw new InvalidOperationException("Mais de um dispositivo corresponde ao IPv4 no HotSpot; revise a configuração da rede.");
+        }
+
+        // Validate the address that active/login will use before accepting a checkout.
+        LoginAddress(matching[0]);
+        return matching[0];
+    }
+
+    private string LoginAddress(JsonElement host)
+    {
+        var translated = Value(host, "to-address");
+        var address = string.IsNullOrEmpty(translated) ? Value(host, "address") : translated;
+
+        if (!IsClientAddress(address))
+        {
+            throw new InvalidOperationException("O IPv4 atribuído pelo HotSpot não pertence à rede de visitantes configurada.");
+        }
+
+        return address;
+    }
 
     private static void RequireApprovedPayment(NetworkOrder order)
     {
@@ -158,10 +226,7 @@ public sealed class RouterOsHotspot(
     {
         RequireApprovedPayment(order);
 
-        if (order.Gateway != Options.GatewayId || order.Minutes <= 0 || !ValidMac(order.Mac))
-        {
-            throw new InvalidOperationException("Pedido não pertence ao gateway ou possui limites inválidos.");
-        }
+        ValidateOrder(order);
 
         var status = await StatusAsync(order, ct);
 
@@ -170,37 +235,25 @@ public sealed class RouterOsHotspot(
             return status.Active;
         }
 
-        // Resolve the current address from the router, not a stale IP stored at checkout.
-        var hosts = await RequestAsync(
-            HttpMethod.Get,
-            "ip/hotspot/host?mac-address=" + Uri.EscapeDataString(order.Mac),
-            null,
-            ct);
-        var matching = hosts.EnumerateArray()
-            .Where(host => string.Equals(Value(host, "mac-address"), order.Mac, StringComparison.OrdinalIgnoreCase)
-                && Value(host, "server") == Options.HotspotServer)
-            .ToArray();
+        if ((await ActiveAsync(order, ct)).GetArrayLength() != 0)
+        {
+            throw new InvalidOperationException("Já existe uma sessão deste pedido em outro IPv4 ou servidor; requer revisão.");
+        }
 
-        if (matching.Length == 0)
+        // Never follow a device to a different source IP or transfer the purchase automatically.
+        var host = await HostAsync(order.Address, ct);
+
+        if (host is null)
         {
             return false;
         }
 
-        if (matching.Length != 1
-            || !IPAddress.TryParse(Value(matching[0], "address"), out var address)
-            || !System.Net.IPNetwork.Parse(Options.ClientSubnet).Contains(address))
-        {
-            throw new InvalidOperationException("O dispositivo não foi identificado de forma única na rede HotSpot.");
-        }
-
-        // RouterOS CLI: /ip/hotspot/active/login (ip, mac-address, user, password).
         await RequestAsync(
             HttpMethod.Post,
             "ip/hotspot/active/login",
             new Dictionary<string, string>
             {
-                ["ip"] = address.ToString(),
-                ["mac-address"] = order.Mac,
+                ["ip"] = LoginAddress(host.Value),
                 ["user"] = order.Username,
                 ["password"] = Password(order)
             },
@@ -212,6 +265,7 @@ public sealed class RouterOsHotspot(
 
     public async Task<(bool Active, bool Expired)> StatusAsync(NetworkOrder order, CancellationToken ct)
     {
+        ValidateOrder(order);
         var users = await UsersAsync(order, ct);
 
         if (users.GetArrayLength() != 1)
@@ -219,12 +273,10 @@ public sealed class RouterOsHotspot(
             return (false, true);
         }
 
-        if (order.Gateway != Options.GatewayId
-            || order.Minutes <= 0
-            || Value(users[0], "mac-address") != order.Mac
+        if (Value(users[0], "name") != order.Username
             || Value(users[0], "server") != Options.HotspotServer
             || Value(users[0], "profile") != Options.UserProfile
-            || Value(users[0], "comment") != "AsterLink order " + order.Id
+            || Value(users[0], "comment") != UserComment(order)
             || ParseDuration(Value(users[0], "limit-uptime")) != TimeSpan.FromMinutes(order.Minutes))
         {
             throw new InvalidOperationException("Usuário HotSpot diverge do pedido; acesso recusado.");
@@ -233,11 +285,22 @@ public sealed class RouterOsHotspot(
         var expired = Value(users[0], "disabled") == "true"
 
             || ParseDuration(Value(users[0], "uptime")) >= TimeSpan.FromMinutes(order.Minutes);
-        var active = await RequestAsync(HttpMethod.Get, "ip/hotspot/active?user=" + Uri.EscapeDataString(order.Username), null, ct);
+        if (expired)
+        {
+            return (false, true);
+        }
 
-        return (!expired
+        var active = await ActiveAsync(order, ct);
 
-            && active.EnumerateArray().Any(x => Value(x, "mac-address") == order.Mac && Value(x, "server") == Options.HotspotServer), expired);
+        if (active.GetArrayLength() != 1
+            || Value(active[0], "user") != order.Username
+            || Value(active[0], "server") != Options.HotspotServer)
+        {
+            return (false, false);
+        }
+
+        var host = await HostAsync(order.Address, ct);
+        return (host is not null && Value(active[0], "address") == LoginAddress(host.Value), false);
     }
 
     public async Task RevokeAsync(NetworkOrder order, CancellationToken ct)
@@ -250,13 +313,13 @@ public sealed class RouterOsHotspot(
                 HttpMethod.Patch,
                 "ip/hotspot/user/" + RecordId(user),
                 new
-            {
-                disabled = "true"
-            },
+                {
+                    disabled = "true"
+                },
                 ct);
         }
 
-        var active = await RequestAsync(HttpMethod.Get, "ip/hotspot/active?user=" + Uri.EscapeDataString(order.Username), null, ct);
+        var active = await ActiveAsync(order, ct);
 
         foreach (var session in active.EnumerateArray())
         {
@@ -271,12 +334,6 @@ public sealed class RouterOsHotspot(
     }
 
     public static string Value(JsonElement item, string name) => item.TryGetProperty(name, out var value) ? value.ToString() : "";
-
-    public static bool ValidMac(string mac) => System.Text.RegularExpressions.Regex.IsMatch(mac, "^(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
-
-        && mac != "00:00:00:00:00:00"
-
-        && (Convert.ToByte(mac[..2], 16) & 1) == 0;
 
     public static TimeSpan ParseDuration(string text)
     {
