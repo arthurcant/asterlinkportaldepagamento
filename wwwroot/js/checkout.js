@@ -106,7 +106,13 @@
         const settings = {
             initialization: { amount: config.amount, payer: { email: config.payerEmail } },
             customization: {
-                paymentMethods: { bankTransfer: ['pix'], creditCard: 'all', debitCard: 'all' },
+                paymentMethods: {
+                    bankTransfer: ['pix'],
+                    creditCard: 'all',
+                    debitCard: 'all',
+                    minInstallments: 1,
+                    maxInstallments: 1,
+                },
                 visual: { style: { theme: 'dark' } },
             },
             callbacks: {
