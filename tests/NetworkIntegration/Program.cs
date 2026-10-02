@@ -126,6 +126,30 @@ Check(
 
 var handler = new FakeRouter();
 
+var errorRouter = new RouterOsHotspot(
+    new FakeFactory(new RouterError()),
+    Options.Create(options),
+    new EphemeralDataProtectionProvider());
+
+try
+{
+    await errorRouter.CaptureAsync(IPAddress.Parse("192.168.88.10"), default);
+    throw new Exception("FAIL: RouterOS error details are preserved");
+}
+catch (HttpRequestException exception)
+{
+    Check(
+        exception.StatusCode == HttpStatusCode.BadRequest
+            && exception.Message.Contains("GET", StringComparison.Ordinal)
+            && exception.Message.Contains("ip/hotspot/host", StringComparison.Ordinal)
+            && exception.Message.Contains("invalid probe field", StringComparison.Ordinal),
+        "RouterOS error details are preserved");
+    Check(
+        !exception.Message.Contains("service:secret", StringComparison.Ordinal)
+            && !exception.Message.Contains("c2VydmljZTpzZWNyZXQ=", StringComparison.Ordinal),
+        "RouterOS errors do not expose credentials");
+}
+
 options.Validate();
 Check(true, "RouterOS settings do not require a payment webhook or browser login URL");
 options.RestUrl = "http://router.example/rest/";
@@ -220,6 +244,8 @@ catch (HttpRequestException)
 await router.EnsureUserAsync(order, default);
 
 Check(handler.PutCount == 1, "retry reconciles existing user without resetting time");
+
+Check(handler.PutHadContentLength, "RouterOS JSON writes use a fixed content length");
 
 Check(
     handler.User!["limit-uptime"] == "60m" && !handler.User.ContainsKey("mac-address"),
@@ -473,6 +499,8 @@ sealed class FakeRouter : HttpMessageHandler
 
     public int PutCount;
 
+    public bool PutHadContentLength;
+
     public bool FailAfterCreate;
 
     public bool DuplicateHost;
@@ -541,6 +569,7 @@ sealed class FakeRouter : HttpMessageHandler
         else if (request.Method == HttpMethod.Put && path.EndsWith("/user"))
         {
             PutCount++;
+            PutHadContentLength = request.Content?.Headers.ContentLength is not null;
             User = JsonSerializer.Deserialize<Dictionary<string, string>>(await request.Content!.ReadAsStringAsync(cancellationToken))!;
 
             User[".id"] = "*1";
@@ -610,5 +639,23 @@ sealed class FakeRouter : HttpMessageHandler
         }
 
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(result)) };
+    }
+}
+
+sealed class RouterError : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+        {
+            Content = JsonContent.Create(new
+            {
+                error = 400,
+                message = "Bad Request",
+                detail = "invalid probe field"
+            })
+        });
     }
 }

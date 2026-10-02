@@ -30,9 +30,10 @@ public sealed class NetworkProvisioningWorker(
                         catch (Exception exception) when (!stoppingToken.IsCancellationRequested)
                         {
                             logger.LogWarning(
-                                "Falha ao conciliar pagamento {PaymentId}: {ErrorType}. Nova tentativa pendente.",
+                                "Falha ao conciliar pagamento {PaymentId}: {ErrorType}: {ErrorMessage}. Nova tentativa pendente.",
                                 job.Id,
-                                exception.GetType().Name);
+                                exception.GetType().Name,
+                                exception.Message);
                         }
 
                         await repository.FinishAsync(job.Id, job.Revision, retry, stoppingToken);
@@ -40,7 +41,10 @@ public sealed class NetworkProvisioningWorker(
                 }
                 catch (Exception exception) when (!stoppingToken.IsCancellationRequested)
                 {
-                    logger.LogWarning("Fila da rede indisponível: {ErrorType}.", exception.GetType().Name);
+                    logger.LogWarning(
+                        "Fila da rede indisponível: {ErrorType}: {ErrorMessage}.",
+                        exception.GetType().Name,
+                        exception.Message);
                 }
             }
 

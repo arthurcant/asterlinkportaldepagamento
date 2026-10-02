@@ -32,16 +32,73 @@ public sealed class RouterOsHotspot(
 
         if (body is not null)
         {
-            request.Content = JsonContent.Create(body);
+            // RouterOS 7.23.7 does not parse JSON request bodies sent with
+            // Transfer-Encoding: chunked. StringContent computes Content-Length,
+            // so mandatory fields such as "name" reach the REST endpoint.
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(body, body.GetType()),
+                Encoding.UTF8,
+                "application/json");
         }
 
         using var response = await clients.CreateClient("RouterOS").SendAsync(request, ct);
-        response.EnsureSuccessStatusCode();
         var text = await response.Content.ReadAsStringAsync(ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var detail = RouterErrorDetail(text);
+            var message = $"RouterOS {method.Method} {path} retornou HTTP {(int)response.StatusCode}";
+
+            if (detail.Length > 0)
+            {
+                message += ": " + detail;
+            }
+
+            throw new HttpRequestException(message, null, response.StatusCode);
+        }
 
         using var json = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "[]" : text);
 
         return json.RootElement.Clone();
+    }
+
+    private static string RouterErrorDetail(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "";
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(text);
+
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return "";
+            }
+
+            foreach (var name in new[] { "detail", "message", "error" })
+            {
+                if (!document.RootElement.TryGetProperty(name, out var value)
+                    || value.ValueKind is not (JsonValueKind.String or JsonValueKind.Number))
+                {
+                    continue;
+                }
+
+                var detail = string.Join(
+                    " ",
+                    value.ToString().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+                return detail.Length <= 300 ? detail : detail[..300];
+            }
+        }
+        catch (JsonException)
+        {
+            // Do not copy an arbitrary response body into logs.
+        }
+
+        return "";
     }
 
     public async Task<DeviceContext> CaptureAsync(IPAddress? source, CancellationToken ct)
