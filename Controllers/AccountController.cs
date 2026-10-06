@@ -73,20 +73,28 @@ public sealed class AccountController(IUserRepository users, IPlanRepository pla
 
         try
         {
-            var id = await users.CreateAsync(input.Name, input.Username, input.Email, passwords.Hash(input.Password), cancellationToken);
+            var normalizedCpf = Cpf.Normalize(input.Cpf);
+            var id = await users.CreateAsync(
+                input.Name,
+                input.Username,
+                input.Email,
+                normalizedCpf,
+                passwords.Hash(input.Password),
+                cancellationToken);
             await SignInAsync(new User
             {
                 Id = id,
                 Name = input.Name.Trim(),
                 Username = input.Username.Trim().ToLowerInvariant(),
-                Email = input.Email.Trim().ToLowerInvariant()
+                Email = input.Email.Trim().ToLowerInvariant(),
+                Cpf = normalizedCpf
             });
 
             return RedirectToAction(nameof(Dashboard));
         }
         catch (MySqlException exception) when (exception.Number == 1062)
         {
-            ModelState.AddModelError(string.Empty, "Este login ou e-mail já está cadastrado.");
+            ModelState.AddModelError(string.Empty, "Este CPF, login ou e-mail já está cadastrado.");
 
             return View("Index", model);
         }

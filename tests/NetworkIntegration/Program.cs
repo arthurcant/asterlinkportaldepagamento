@@ -36,6 +36,57 @@ async Task Reject(Func<Task> action, string name)
     throw new Exception("FAIL: " + name);
 }
 
+Task<long> CreateUserWithCpf(IUserRepository repository)
+{
+    return repository.CreateAsync(
+        "Usuário de Teste",
+        "usuario.teste",
+        "usuario@asterlink.com.br",
+        "529.982.247-25",
+        "password-hash");
+}
+
+Func<IUserRepository, Task<long>> createUserWithCpf = CreateUserWithCpf;
+Check(createUserWithCpf is not null, "user repository contract requires CPF");
+
+Check(Cpf.Normalize("529.982.247-25") == "52998224725", "CPF formatting is removed before persistence");
+Check(Cpf.IsValid("529.982.247-25"), "formatted CPF with valid check digits is accepted");
+Check(!Cpf.IsValid("529.982.247-24"), "CPF with invalid check digits is rejected");
+Check(!Cpf.IsValid("111.111.111-11"), "repeated CPF digits are rejected");
+Check(!Cpf.IsValid("cpf 529.982.247-25"), "CPF containing letters is rejected");
+
+var validRegistration = new RegisterInputModel
+{
+    Name = "Usuário de Teste",
+    Username = "usuario.teste",
+    Email = "usuario@asterlink.com.br",
+    Cpf = "529.982.247-25",
+    Password = "senha-segura",
+    ConfirmPassword = "senha-segura"
+};
+var validationResults = new List<System.ComponentModel.DataAnnotations.ValidationResult>();
+Check(
+    System.ComponentModel.DataAnnotations.Validator.TryValidateObject(
+        validRegistration,
+        new System.ComponentModel.DataAnnotations.ValidationContext(validRegistration),
+        validationResults,
+        validateAllProperties: true),
+    "registration accepts a valid CPF");
+
+validRegistration.Cpf = "123.456.789-00";
+validationResults.Clear();
+Check(
+    !System.ComponentModel.DataAnnotations.Validator.TryValidateObject(
+        validRegistration,
+        new System.ComponentModel.DataAnnotations.ValidationContext(validRegistration),
+        validationResults,
+        validateAllProperties: true)
+    && validationResults.Any(result => result.MemberNames.Contains(nameof(RegisterInputModel.Cpf))),
+    "registration rejects an invalid CPF");
+
+var userWithCpf = new User { Cpf = "52998224725" };
+Check(userWithCpf.Cpf == "52998224725", "user identity retains its normalized CPF");
+
 const string signature = "ts=1704908010,v1=9b0ea51d5a2b37aff293dac1dfa29ab394589ffa41b7ddb742a6617857fb6ad9";
 
 Check(

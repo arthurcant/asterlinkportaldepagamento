@@ -5,13 +5,15 @@ CREATE TABLE IF NOT EXISTS users (
     name VARCHAR(120) NOT NULL,
     username VARCHAR(80) NOT NULL,
     email VARCHAR(190) NOT NULL,
+    cpf CHAR(11) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY ux_users_username (username),
-    UNIQUE KEY ux_users_email (email)
+    UNIQUE KEY ux_users_email (email),
+    UNIQUE KEY ux_users_cpf (cpf)
 ) ENGINE = InnoDB;
 
 -- Compatibilidade com bancos onde a tabela foi criada antes do campo username.
@@ -78,3 +80,59 @@ FROM
 EXECUTE add_username_index_statement;
 
 DEALLOCATE PREPARE add_username_index_statement;
+
+-- Compatibilidade com bancos onde a tabela foi criada antes do campo CPF.
+-- Os usuários existentes permanecem com CPF nulo até que seus dados reais sejam informados.
+SET
+    @cpf_column_exists = (
+        SELECT
+            COUNT(*)
+        FROM
+            information_schema.columns
+        WHERE
+            table_schema = DATABASE()
+            AND table_name = 'users'
+            AND column_name = 'cpf'
+    );
+
+SET
+    @add_cpf_sql = IF(
+        @cpf_column_exists = 0,
+        'ALTER TABLE users ADD COLUMN cpf CHAR(11) NULL AFTER email',
+        'SELECT 1'
+    );
+
+PREPARE add_cpf_statement
+FROM
+    @add_cpf_sql;
+
+EXECUTE add_cpf_statement;
+
+DEALLOCATE PREPARE add_cpf_statement;
+
+SET
+    @cpf_index_exists = (
+        SELECT
+            COUNT(*)
+        FROM
+            information_schema.statistics
+        WHERE
+            table_schema = DATABASE()
+            AND table_name = 'users'
+            AND index_name = 'ux_users_cpf'
+    );
+
+SET
+    @add_cpf_index_sql = IF(
+        @cpf_index_exists = 0,
+        'ALTER TABLE users ADD UNIQUE KEY ux_users_cpf (cpf)',
+        'SELECT 1'
+    );
+
+PREPARE add_cpf_index_statement
+FROM
+    @add_cpf_index_sql;
+
+EXECUTE add_cpf_index_statement;
+
+DEALLOCATE PREPARE add_cpf_index_statement;

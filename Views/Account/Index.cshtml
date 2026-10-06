@@ -5,9 +5,18 @@
     var registering = Model.Mode == "register";
 }
 <main class="auth-page">
-    <div class="ambient ambient-top"></div>
-    <div class="ambient ambient-bottom"></div>
-    <img class="aster-logo" src="~/images/auth/VERSÃO 6 LOGO DA ÁSTER.svg" alt="Áster Link" />
+    <header class="auth-brand">
+        <img class="aster-logo" src="~/images/auth/VERSÃO 6 LOGO DA ÁSTER.svg" alt="Áster Link" />
+    </header>
+    <section class="auth-intro" aria-labelledby="portal-title">
+        <div class="wifi-halo" aria-hidden="true">
+            <span class="wifi-badge">
+                <img src="~/images/auth/portal/wifi-hero.svg" alt="" />
+            </span>
+        </div>
+        <h1 id="portal-title">Conecte-se ao<br />Wi-Fi Ásterlink</h1>
+        <p>Acesse o portal para realizar o pagamento e garantir sua conexão com a internet.</p>
+    </section>
     <section class="auth-card" aria-labelledby="auth-title">
         <h1 id="auth-title" class="visually-hidden">@(registering ? "Criar conta" : "Entrar")</h1>
         <nav class="auth-tabs" aria-label="Autenticação">
@@ -83,6 +92,15 @@
                     </div>
                     <span asp-validation-for="Register.Email" class="field-error"></span>
                 </div>
+                <div class="field-group">
+                    <label asp-for="Register.Cpf">CPF</label>
+                    <div class="input-shell">
+                        <span class="text-icon">ID</span>
+                        <input asp-for="Register.Cpf" type="text" inputmode="numeric" autocomplete="off"
+                            maxlength="14" placeholder="000.000.000-00" />
+                    </div>
+                    <span asp-validation-for="Register.Cpf" class="field-error"></span>
+                </div>
                 <div class="field-grid">
                     <div class="field-group">
                         <label asp-for="Register.Password">Senha</label>
@@ -105,26 +123,31 @@
                     </div>
                 </div>
                 <button class="submit-button" type="submit">
-                    <span>CRIAR CONTA</span>
+                    <span>Cadastrar</span>
                     <img src="~/images/auth/arrow.svg" alt="" />
                 </button>
             </form>
         }
 
     </section>
-    <a class="sponsor-card" href="https://asterlink.com.br" target="_blank"
-        rel="noopener noreferrer">
-        <span class="sponsor-image">
-            <img src="~/images/auth/sponsor.png" alt="" />
-        </span>
-        <span class="sponsor-copy"><small>Banner de Patrocínio</small><strong>Ultra Fibra
-                Áster</strong>
-            <span>Conectividade sem limites…</span>
-        </span>
-        <span class="sponsor-arrow">
-            <img src="~/images/auth/external-link.svg" alt="" />
-        </span>
-    </a>
+    <section class="auth-benefits" aria-label="Qualidades da conexão">
+        <div class="auth-benefit">
+            <img src="~/images/auth/portal/fast.svg" alt="" />
+            <span>Rápido</span>
+        </div>
+        <div class="auth-benefit">
+            <img src="~/images/auth/portal/secure.svg" alt="" />
+            <span>Seguro</span>
+        </div>
+        <div class="auth-benefit">
+            <img src="~/images/auth/portal/stable.svg" alt="" />
+            <span>Estável</span>
+        </div>
+    </section>
+    <footer class="auth-footer">
+        <div class="auth-wave" aria-hidden="true"></div>
+        <span>Ásterlink | Internet que te conecta</span>
+    </footer>
 </main>
 
 @section Scripts

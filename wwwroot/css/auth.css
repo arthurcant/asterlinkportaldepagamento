@@ -1,12 +1,12 @@
 :root {
-    --bg: #0e1324;
-    --panel: rgba(8, 13, 30, 0.8);
-    --input: #0e1324;
-    --muted: #8d90a2;
-    --text: #dde1fa;
-    --secondary: #c3c5d9;
-    --blue: #059af0;
-    --blue-dark: #1d5bff;
+    --bg: #000d28;
+    --panel: rgba(5, 22, 52, 0.88);
+    --input: rgba(0, 13, 40, 0.78);
+    --muted: #adc7e8;
+    --text: #f4f8ff;
+    --secondary: #d1e0f5;
+    --blue: #39b6f5;
+    --blue-dark: #0877d9;
 }
 * {
     box-sizing: border-box;
@@ -17,58 +17,94 @@ body {
     margin: 0;
 }
 body {
-    background: #0e1324;
+    background: var(--bg);
     color: var(--text);
     font-family: Inter, sans-serif;
 }
 .auth-page {
     position: relative;
     min-height: 100dvh;
-    overflow: hidden;
+    isolation: isolate;
+    overflow: clip;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 16px 16px 70px;
+    padding: 0 16px;
+    background:
+        linear-gradient(180deg, rgba(2, 26, 64, 0.85), rgba(0, 13, 40, 0.96)),
+        url('../images/auth/portal/night-highway.png') center / cover no-repeat,
+        #021a40;
 }
-.ambient {
-    position: absolute;
-    border-radius: 9999px;
-    pointer-events: none;
+.auth-brand,
+.auth-intro,
+.auth-card,
+.auth-benefits,
+.auth-footer {
+    position: relative;
+    z-index: 1;
 }
-.ambient-top {
-    width: 273px;
-    height: 252px;
-    top: -134px;
-    left: -39px;
-    background: rgba(5, 154, 240, 0.1);
-    filter: blur(60px);
-}
-.ambient-bottom {
-    width: 234px;
-    height: 216px;
-    right: -39px;
-    bottom: -134px;
-    background: rgba(183, 196, 255, 0.1);
-    filter: blur(50px);
+.auth-brand {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    padding-top: 32px;
 }
 .aster-logo {
-    position: relative;
-    width: 190px;
-    height: 126.67px;
+    width: 210px;
+    height: 110px;
     object-fit: cover;
-    object-position: left top;
+    object-position: center;
+}
+.auth-intro {
+    width: min(100%, 360px);
+    margin: 20px auto 0;
+    text-align: center;
+}
+.wifi-halo {
+    display: grid;
+    place-items: center;
+    width: 112px;
+    height: 112px;
+    margin: 0 auto 14px;
+    border-radius: 50%;
+    background: rgba(30, 153, 218, 0.14);
+    box-shadow: 0 0 34px rgba(30, 153, 218, 0.18);
+}
+.wifi-badge {
+    display: grid;
+    place-items: center;
+    width: 80px;
+    height: 80px;
+    border: 1px solid rgba(140, 205, 255, 0.25);
+    border-radius: 50%;
+    background: rgba(7, 30, 68, 0.6);
+    backdrop-filter: blur(2px);
+}
+.auth-intro h1 {
+    margin: 0;
+    color: #fff;
+    font-size: 24px;
+    line-height: 30px;
+    letter-spacing: -0.6px;
+}
+.auth-intro p {
+    margin: 18px auto 0;
+    max-width: 320px;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 15px;
+    line-height: 22px;
 }
 .auth-card {
-    position: relative;
     width: min(100%, 420px);
+    margin-top: 28px;
     padding: 25px;
     background: var(--panel);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(140, 205, 255, 0.25);
     border-radius: 16px;
     box-shadow:
-        0 20px 40px -10px rgba(0, 0, 0, 0.8),
+        0 20px 40px -10px rgba(0, 0, 0, 0.48),
         0 0 30px rgba(5, 154, 240, 0.1);
-    backdrop-filter: blur(20px);
+    backdrop-filter: blur(12px);
 }
 .auth-card:before {
     content: '';
@@ -85,7 +121,7 @@ body {
     margin-bottom: 32px;
     border-radius: 8px;
     border: 1px solid rgba(255, 255, 255, 0.05);
-    background: #24293b;
+    background: rgba(0, 13, 40, 0.7);
 }
 .auth-tab {
     flex: 1;
@@ -102,7 +138,7 @@ body {
 }
 .auth-tab.active {
     color: var(--blue);
-    background: #0e1324;
+    background: #092b59;
     border-color: rgba(5, 154, 240, 0.3);
     box-shadow: 0 0 15px rgba(5, 154, 240, 0.2);
 }
@@ -141,7 +177,7 @@ body {
     display: flex;
     align-items: center;
     min-height: 53px;
-    border: 1px solid rgba(67, 70, 86, 0.5);
+    border: 1px solid rgba(140, 205, 255, 0.28);
     border-radius: 12px;
     background: var(--input);
     transition: 0.2s;
@@ -156,7 +192,7 @@ body {
     left: 14px;
     width: 19px;
     max-height: 19px;
-    color: #8d90a2;
+    color: var(--muted);
     font:
         500 11px 'JetBrains Mono',
         monospace;
@@ -174,7 +210,7 @@ body {
         sans-serif;
 }
 .input-shell input::placeholder {
-    color: rgba(141, 144, 162, 0.4);
+    color: rgba(173, 199, 232, 0.55);
 }
 .password-toggle {
     position: absolute;
@@ -218,7 +254,7 @@ body {
     border-radius: 12px;
     background: linear-gradient(90deg, var(--blue-dark), var(--blue));
     box-shadow: 0 4px 15px rgba(29, 91, 255, 0.3);
-    color: #ecedff;
+    color: #fff;
     cursor: pointer;
     font:
         500 12px/16px 'JetBrains Mono',
@@ -234,74 +270,49 @@ body {
     width: 16px;
     height: 16px;
 }
-.sponsor-card {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    width: min(100%, 420px);
-    margin-top: 32px;
-    padding: 17px;
-    text-decoration: none;
-    color: inherit;
-    background: rgba(22, 27, 44, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 12px;
-    backdrop-filter: blur(6px);
-}
-.sponsor-image {
-    flex: 0 0 56px;
-    height: 56px;
-    padding: 1px;
-    overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    background: #0e1324;
-}
-.sponsor-image img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    mix-blend-mode: screen;
-    opacity: 0.7;
-}
-.sponsor-copy {
-    display: flex;
-    flex: 1;
-    min-width: 0;
-    flex-direction: column;
-}
-.sponsor-copy small {
-    color: var(--muted);
-    font:
-        500 12px/16px 'JetBrains Mono',
-        monospace;
-    letter-spacing: 0.6px;
-}
-.sponsor-copy strong {
-    font-size: 14px;
-    line-height: 18px;
-}
-.sponsor-copy span {
-    overflow: hidden;
-    color: var(--secondary);
-    font-size: 14px;
-    line-height: 20px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.sponsor-arrow {
+.auth-benefits {
     display: grid;
-    flex: 0 0 32px;
-    height: 32px;
-    place-items: center;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 50%;
-    background: #0e1324;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: min(100%, 320px);
+    margin: 36px auto 0;
+    padding: 16px 0 4px;
 }
-.sponsor-arrow img {
-    width: 11px;
-    height: 11px;
+.auth-benefit {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 44px;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 13px;
+    line-height: 13px;
+}
+.auth-benefit + .auth-benefit {
+    border-left: 1px solid rgba(0, 123, 255, 0.3);
+}
+.auth-benefit img {
+    display: block;
+}
+.auth-footer {
+    width: calc(100% + 32px);
+    margin-top: auto;
+    padding-top: 48px;
+    text-align: center;
+}
+.auth-wave {
+    height: 56px;
+    opacity: 0.4;
+    background: url('../images/auth/portal/wave.svg') center bottom / 390px 56px repeat-x;
+}
+.auth-footer span {
+    display: block;
+    padding: 12px 16px 24px;
+    background: rgba(0, 13, 40, 0.92);
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    line-height: 16px;
+    letter-spacing: 0.6px;
 }
 .field-grid {
     display: grid;
@@ -326,11 +337,13 @@ body {
 }
 @media (min-width: 700px) {
     .auth-page {
-        justify-content: center;
-        padding: 28px;
+        padding: 0 28px;
     }
-    .aster-logo {
-        height: 118px;
+    .auth-brand {
+        padding-top: 36px;
+    }
+    .auth-intro {
+        margin-top: 24px;
     }
     .field-grid {
         grid-template-columns: 1fr 1fr;
@@ -341,7 +354,7 @@ body {
     .auth-card:has(.register-form) {
         width: min(100%, 520px);
     }
-    .auth-card:has(.register-form) + .sponsor-card {
-        width: min(100%, 520px);
+    .auth-footer {
+        width: calc(100% + 56px);
     }
 }

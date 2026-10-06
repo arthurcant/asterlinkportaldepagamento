@@ -10,6 +10,7 @@ public interface IUserRepository
         string name,
         string username,
         string email,
+        string cpf,
         string passwordHash,
         CancellationToken cancellationToken = default);
 }

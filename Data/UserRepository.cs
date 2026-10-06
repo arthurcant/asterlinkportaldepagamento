@@ -11,7 +11,7 @@ public sealed class UserRepository(IConfiguration configuration) : IUserReposito
     public async Task<User?> FindByLoginAsync(string login, CancellationToken cancellationToken = default)
     {
         const string sql = """
-            SELECT id, name, username, email, password_hash FROM users
+            SELECT id, name, username, email, cpf, password_hash FROM users
             WHERE (email = @login OR username = @login) AND is_active = 1 LIMIT 1;
             """;
         await using var connection = new MySqlConnection(_connectionString);
@@ -31,6 +31,7 @@ public sealed class UserRepository(IConfiguration configuration) : IUserReposito
             Name = reader.GetString("name"),
             Username = reader.GetString("username"),
             Email = reader.GetString("email"),
+            Cpf = reader.IsDBNull(reader.GetOrdinal("cpf")) ? string.Empty : reader.GetString("cpf"),
             PasswordHash = reader.GetString("password_hash")
         };
     }
@@ -39,16 +40,21 @@ public sealed class UserRepository(IConfiguration configuration) : IUserReposito
         string name,
         string username,
         string email,
+        string cpf,
         string passwordHash,
         CancellationToken cancellationToken = default)
     {
-        const string sql = "INSERT INTO users (name, username, email, password_hash) VALUES (@name, @username, @email, @passwordHash);";
+        const string sql = """
+            INSERT INTO users (name, username, email, cpf, password_hash)
+            VALUES (@name, @username, @email, @cpf, @passwordHash);
+            """;
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = new MySqlCommand(sql, connection);
         command.Parameters.Add("@name", MySqlDbType.VarChar).Value = name.Trim();
         command.Parameters.Add("@username", MySqlDbType.VarChar).Value = username.Trim().ToLowerInvariant();
         command.Parameters.Add("@email", MySqlDbType.VarChar).Value = NormalizeEmail(email);
+        command.Parameters.Add("@cpf", MySqlDbType.VarChar).Value = Cpf.Normalize(cpf);
         command.Parameters.Add("@passwordHash", MySqlDbType.VarChar).Value = passwordHash;
         await command.ExecuteNonQueryAsync(cancellationToken);
 

@@ -36,6 +36,11 @@ public sealed class RegisterInputModel
     [StringLength(190)]
     public string Email { get; set; } = string.Empty;
 
+    [Required(ErrorMessage = "Informe o CPF.")]
+    [RegularExpression("^[0-9]{3}\\.?[0-9]{3}\\.?[0-9]{3}-?[0-9]{2}$", ErrorMessage = "Informe um CPF válido.")]
+    [ValidCpf]
+    public string Cpf { get; set; } = string.Empty;
+
     [Required(ErrorMessage = "Crie uma senha.")]
     [StringLength(100, MinimumLength = 8, ErrorMessage = "A senha deve ter pelo menos 8 caracteres.")]
     public string Password { get; set; } = string.Empty;
