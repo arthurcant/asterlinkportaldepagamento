@@ -87,6 +87,9 @@ Check(
 var userWithCpf = new User { Cpf = "52998224725" };
 Check(userWithCpf.Cpf == "52998224725", "user identity retains its normalized CPF");
 
+var displayedPlan = new InternetPlan { SpeedMbps = 50 };
+Check(displayedPlan.SpeedMbps == 50, "internet plan retains display-only speed");
+
 const string signature = "ts=1704908010,v1=9b0ea51d5a2b37aff293dac1dfa29ab394589ffa41b7ddb742a6617857fb6ad9";
 
 Check(

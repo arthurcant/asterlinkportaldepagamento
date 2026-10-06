@@ -1,0 +1,13 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="SVG - S&#195;&#173;mbolo &#39;A&#39; em fita estilizada">
+<path id="Vector" d="M16 2.66667L3.55556 27.5556H10.2222L12.8889 21.7778H19.1111L21.7778 27.5556H28.4444L16 2.66667V2.66667" fill="url(#paint0_linear_0_18)"/>
+<path id="Vector_2" d="M14.2222 17.3333L16 12.8889L17.7778 17.3333H14.2222V17.3333" fill="#031B41"/>
+<path id="Vector_3" d="M16 2.66667L23.1111 18.6667H17.3333L16 15.1111L12.8889 21.7778H8.88889L16 2.66667V2.66667" fill="white" fill-opacity="0.2"/>
+</g>
+<defs>
+<linearGradient id="paint0_linear_0_18" x1="3.55556" y1="2.66667" x2="28.4444" y2="27.5556" gradientUnits="userSpaceOnUse">
+<stop stop-color="#8CCDFF"/>
+<stop offset="1" stop-color="#007BFF"/>
+</linearGradient>
+</defs>
+</svg>

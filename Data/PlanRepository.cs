@@ -9,7 +9,12 @@ public sealed class PlanRepository(IConfiguration configuration) : IPlanReposito
 
     public async Task<IReadOnlyList<InternetPlan>> GetActiveAsync(CancellationToken cancellationToken = default)
     {
-        const string sql = "SELECT id, name, duration_minutes, price, is_popular FROM internet_plans WHERE is_active = 1 ORDER BY display_order, duration_minutes;";
+        const string sql = """
+            SELECT id, name, speed_mbps, duration_minutes, price, is_popular
+            FROM internet_plans
+            WHERE is_active = 1
+            ORDER BY display_order, duration_minutes;
+            """;
         var plans = new List<InternetPlan>();
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -22,6 +27,7 @@ public sealed class PlanRepository(IConfiguration configuration) : IPlanReposito
             {
                 Id = reader.GetInt32("id"),
                 Name = reader.GetString("name"),
+                SpeedMbps = reader.GetInt32("speed_mbps"),
                 DurationMinutes = reader.GetInt32("duration_minutes"),
                 Price = reader.GetDecimal("price"),
                 IsPopular = reader.GetBoolean("is_popular")
@@ -33,7 +39,12 @@ public sealed class PlanRepository(IConfiguration configuration) : IPlanReposito
 
     public async Task<InternetPlan?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
-        const string sql = "SELECT id, name, duration_minutes, price, is_popular FROM internet_plans WHERE id = @id AND is_active = 1 LIMIT 1;";
+        const string sql = """
+            SELECT id, name, speed_mbps, duration_minutes, price, is_popular
+            FROM internet_plans
+            WHERE id = @id AND is_active = 1
+            LIMIT 1;
+            """;
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = new MySqlCommand(sql, connection);
@@ -49,6 +60,7 @@ public sealed class PlanRepository(IConfiguration configuration) : IPlanReposito
         {
             Id = reader.GetInt32("id"),
             Name = reader.GetString("name"),
+            SpeedMbps = reader.GetInt32("speed_mbps"),
             DurationMinutes = reader.GetInt32("duration_minutes"),
             Price = reader.GetDecimal("price"),
             IsPopular = reader.GetBoolean("is_popular")

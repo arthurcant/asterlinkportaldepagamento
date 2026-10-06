@@ -10,5 +10,7 @@ public sealed class InternetPlan
 
     public decimal Price { get; init; }
 
+    public int SpeedMbps { get; init; }
+
     public bool IsPopular { get; init; }
 }
