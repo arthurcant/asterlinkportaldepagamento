@@ -169,7 +169,7 @@ input {
 .plans-panel {
     min-height: calc(100dvh - 190px);
     padding: 16px 16px 28px;
-    border-radius: 24px 24px 0 0;
+    border-radius: 24px 24px 24px 24px;
     background: var(--ice);
     box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.18);
 }

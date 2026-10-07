@@ -113,7 +113,26 @@
                     minInstallments: 1,
                     maxInstallments: 1,
                 },
-                visual: { style: { theme: 'dark' } },
+                visual: {
+                    style: {
+                        theme: 'default',
+                        customVariables: {
+                            baseColor: '#087df5',
+                            baseColorFirstVariant: '#062858',
+                            baseColorSecondVariant: '#031b41',
+                            textPrimaryColor: '#031b41',
+                            textSecondaryColor: '#64748b',
+                            inputBackgroundColor: '#f4fafe',
+                            formBackgroundColor: '#ffffff',
+                            outlinePrimaryColor: '#cde4f5',
+                            outlineSecondaryColor: '#94a3b8',
+                            buttonTextColor: '#ffffff',
+                            borderRadiusMedium: '12px',
+                            formPadding: '12px',
+                            inputHorizontalPadding: '12px',
+                        },
+                    },
+                },
             },
             callbacks: {
                 onReady: () => paymentContainer.setAttribute('aria-busy', 'false'),
