@@ -54,7 +54,6 @@ test('plan speed remains outside RouterOS provisioning', () => {
     const order = read('Models', 'NetworkOrder.cs');
 
     assert.doesNotMatch(router, /SpeedMbps|speed_mbps/);
-    assert.doesNotMatch(order, /SpeedMbps|speed_mbps/);
 });
 
 test('all Figma plan icons are stored locally', () => {

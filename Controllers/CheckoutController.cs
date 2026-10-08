@@ -216,6 +216,7 @@ public sealed class CheckoutController(
                 PlanName = plan.Name,
                 Price = plan.Price,
                 Minutes = plan.DurationMinutes,
+                SpeedMbps = plan.SpeedMbps,
                 Address = current.Address,
                 Gateway = current.Gateway,
                 ProtectedPassword = router.ProtectPassword(Convert.ToHexString(RandomNumberGenerator.GetBytes(24))),
@@ -286,6 +287,12 @@ public sealed class CheckoutController(
         Response.Headers.CacheControl = "no-store";
         var order = await OwnedAsync(id, ct);
 
+        if (order is not null && order.SpeedMbps <= 0)
+        {
+            var plan = await plans.GetByIdAsync(order.PlanId, ct);
+            order.SpeedMbps = plan?.SpeedMbps ?? 0;
+        }
+
         return order is null ? NotFound() : View(order);
     }
 
@@ -301,6 +308,7 @@ public sealed class CheckoutController(
         }
 
         var state = order.AccessStatus;
+        DateTimeOffset? expiresAt = null;
 
         if (state == "ready")
         {
@@ -308,6 +316,11 @@ public sealed class CheckoutController(
             {
                 var network = await router.StatusAsync(order, ct);
                 state = network.Expired ? "expired" : network.Active ? "connected" : "ready";
+
+                if (network.Active && network.Remaining is { } remaining)
+                {
+                    expiresAt = DateTimeOffset.UtcNow.Add(remaining);
+                }
             }
             catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
             {
@@ -318,7 +331,8 @@ public sealed class CheckoutController(
         return Json(new
         {
             payment = order.PaymentStatus,
-            access = state
+            access = state,
+            expires_at = expiresAt
         });
     }
 

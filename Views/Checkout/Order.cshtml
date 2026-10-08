@@ -1,18 +1,98 @@
 @model NetworkOrder
 @{
+    Layout = "_PlansLayout";
     ViewData["Title"] = "Acompanhar pedido";
+
+    string DurationLabel(int minutes)
+    {
+        if (minutes == 60)
+        {
+            return "1 hora";
+        }
+
+        return minutes > 60 && minutes % 60 == 0
+            ? $"{minutes / 60} horas"
+            : $"{minutes} minutos";
+    }
 }
-<main class="container py-4">
-    <h1>@Model.PlanName</h1>
-    <p>Este plano oferece @Model.Minutes minutos de uso conectado. O tempo começa ao entrar no
-        HotSpot.</p>
-    <p id="network-state" role="status">Verificando pagamento e acesso…</p>
-    <form method="post" action="/checkout/pedido/@Model.Id/conectar" id="connect-form" hidden>
-        @Html.AntiForgeryToken()
-        <button type="submit">Conectar à internet</button>
-    </form>
-    <p>Se sair desta página, guarde este endereço para acompanhar o pedido.</p>
-    <a href="/conta/painel">Voltar aos planos</a>
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/order.css" asp-append-version="true" />
+}
+
+<main class="order-page" data-order-page data-tone="pending">
+    <div class="order-ambient order-ambient-top" aria-hidden="true"></div>
+    <div class="order-ambient order-ambient-center" aria-hidden="true"></div>
+
+    <header class="order-brand" aria-label="Ásterlink — Internet que te conecta">
+        <div class="order-brand-line">
+            <img class="order-brand-symbol" src="~/images/plans/figma/logo-symbol.svg" alt="" />
+            <strong>Ásterlink</strong>
+            <img class="order-brand-wifi" src="~/images/plans/figma/logo-wifi.svg" alt="" />
+        </div>
+        <span>INTERNET QUE TE CONECTA</span>
+    </header>
+
+    <section class="order-content" aria-labelledby="order-title">
+        <div class="order-status-icon" aria-hidden="true">
+            <img src="~/images/order/success-check.svg" alt="" />
+        </div>
+
+        <h1 id="order-title">Verificando acesso</h1>
+        <p id="network-state" class="order-status-message" role="status" aria-live="polite">
+            Verificando pagamento e acesso…
+        </p>
+
+        <dl class="order-details" aria-label="Informações do acesso adquirido">
+            <div class="order-detail">
+                <span class="order-detail-icon" aria-hidden="true">
+                    <img src="~/images/order/plan.svg" alt="" />
+                </span>
+                <div>
+                    <dt>Plano adquirido</dt>
+                    <dd>
+                        @Model.PlanName —
+                        <span id="order-duration" data-minutes="@Model.Minutes">@DurationLabel(Model.Minutes)</span>
+                    </dd>
+                </div>
+            </div>
+            <div class="order-detail">
+                <span class="order-detail-icon" aria-hidden="true">
+                    <img src="~/images/order/speed.svg" alt="" />
+                </span>
+                <div>
+                    <dt>Velocidade</dt>
+                    <dd>@(Model.SpeedMbps > 0 ? $"{Model.SpeedMbps} Mbps" : "Consulte o plano")</dd>
+                </div>
+            </div>
+            <div class="order-detail">
+                <span class="order-detail-icon" aria-hidden="true">
+                    <img src="~/images/order/clock.svg" alt="" />
+                </span>
+                <div>
+                    <dt>Expira em</dt>
+                    <dd id="order-expiration">Aguardando conexão</dd>
+                </div>
+            </div>
+        </dl>
+
+        <div class="order-action-slot">
+            <form method="post" action="/checkout/pedido/@Model.Id/conectar" id="connect-form" hidden>
+                @Html.AntiForgeryToken()
+                <button type="submit">Conectar à internet</button>
+            </form>
+        </div>
+    </section>
+
+    <footer class="order-footer">
+        <div class="order-waves" aria-hidden="true">
+            <img src="~/images/order/wave-1.svg" alt="" />
+            <img src="~/images/order/wave-2.svg" alt="" />
+            <img src="~/images/order/wave-3.svg" alt="" />
+            <img src="~/images/order/wave-4.svg" alt="" />
+        </div>
+        <span>Ásterlink | Internet que te conecta</span>
+    </footer>
 </main>
 
 <script src="~/js/network-order.js" data-order="@Model.Id" asp-append-version="true"></script>

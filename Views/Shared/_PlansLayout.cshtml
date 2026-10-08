@@ -12,6 +12,7 @@
             rel="stylesheet">
         <link rel="stylesheet" href="~/css/plans.css" asp-append-version="true" />
         <link rel="stylesheet" href="~/css/checkout.css" asp-append-version="true" />
+        @await RenderSectionAsync("Styles", required: false)
     </head>
     <body>@RenderBody()</body>
 </html>

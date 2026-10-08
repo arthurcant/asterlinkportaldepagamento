@@ -26,6 +26,11 @@ public sealed class NetworkOrder
         get; set;
     }
 
+    public int SpeedMbps
+    {
+        get; set;
+    }
+
     public string Address { get; set; } = "";
 
     public string Gateway { get; set; } = "";

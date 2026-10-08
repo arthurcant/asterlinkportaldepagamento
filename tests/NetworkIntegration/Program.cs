@@ -146,8 +146,13 @@ var order = new NetworkOrder
     Price = 5m,
     Address = "192.168.88.10",
     Minutes = 60,
+    SpeedMbps = 20,
     Gateway = "lab"
 };
+
+Check(
+    JsonSerializer.Deserialize<NetworkOrder>(JsonSerializer.Serialize(order))!.SpeedMbps == 20,
+    "purchase snapshot retains plan speed");
 
 JsonElement Payment(
     decimal amount = 5m,
@@ -342,7 +347,11 @@ order.Address = "192.168.88.10";
 handler.TranslatedAddress = "192.168.88.200";
 Check(await router.LoginAsync(order, default) && handler.LoginBody!["ip"] == "192.168.88.200",
     "login uses the translated IPv4 of the original host when HotSpot assigns one");
-Check((await router.StatusAsync(order, default)).Active, "translated IPv4 session is recognized");
+handler.SessionTimeLeft = "29m30s";
+var activeStatus = await router.StatusAsync(order, default);
+Check(activeStatus.Active, "translated IPv4 session is recognized");
+Check(activeStatus.Remaining == TimeSpan.FromMinutes(29.5),
+    "active session reports RouterOS session time left");
 handler.ActiveAddress = "192.168.88.99";
 Check(!(await router.StatusAsync(order, default)).Active, "another IPv4 session is not reported as connected");
 await Reject(() => router.LoginAsync(order, default), "conflicting active session cannot trigger a new login");
@@ -579,6 +588,8 @@ sealed class FakeRouter : HttpMessageHandler
 
     public bool SuppressActivation;
 
+    public string SessionTimeLeft = "1h";
+
     public Dictionary<string, string>? LoginBody;
 
     public List<string> RevokePaths = [];
@@ -683,7 +694,8 @@ sealed class FakeRouter : HttpMessageHandler
                     [".id"] = "*2",
                     ["user"] = User!["name"],
                     ["address"] = ActiveAddress ?? TranslatedAddress ?? HostAddress,
-                    ["server"] = User["server"]
+                    ["server"] = User["server"],
+                    ["session-time-left"] = SessionTimeLeft
                 }
             } : Array.Empty<Dictionary<string, string>>();
         }

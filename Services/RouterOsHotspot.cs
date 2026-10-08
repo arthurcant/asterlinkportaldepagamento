@@ -204,7 +204,7 @@ public sealed class RouterOsHotspot(
         return RequestAsync(
             HttpMethod.Get,
             "ip/hotspot/active?user=" + Uri.EscapeDataString(order.Username)
-                + "&.proplist=.id,user,address,server",
+                + "&.proplist=.id,user,address,server,session-time-left",
             null,
             ct);
     }
@@ -320,14 +320,16 @@ public sealed class RouterOsHotspot(
         return (await StatusAsync(order, ct)).Active;
     }
 
-    public async Task<(bool Active, bool Expired)> StatusAsync(NetworkOrder order, CancellationToken ct)
+    public async Task<(bool Active, bool Expired, TimeSpan? Remaining)> StatusAsync(
+        NetworkOrder order,
+        CancellationToken ct)
     {
         ValidateOrder(order);
         var users = await UsersAsync(order, ct);
 
         if (users.GetArrayLength() != 1)
         {
-            return (false, true);
+            return (false, true, TimeSpan.Zero);
         }
 
         if (Value(users[0], "name") != order.Username
@@ -344,8 +346,11 @@ public sealed class RouterOsHotspot(
             || ParseDuration(Value(users[0], "uptime")) >= TimeSpan.FromMinutes(order.Minutes);
         if (expired)
         {
-            return (false, true);
+            return (false, true, TimeSpan.Zero);
         }
+
+        var remainingAllowance = TimeSpan.FromMinutes(order.Minutes)
+            - ParseDuration(Value(users[0], "uptime"));
 
         var active = await ActiveAsync(order, ct);
 
@@ -353,11 +358,24 @@ public sealed class RouterOsHotspot(
             || Value(active[0], "user") != order.Username
             || Value(active[0], "server") != Options.HotspotServer)
         {
-            return (false, false);
+            return (false, false, remainingAllowance);
         }
 
         var host = await HostAsync(order.Address, ct);
-        return (host is not null && Value(active[0], "address") == LoginAddress(host.Value), false);
+        var isExpectedSession = host is not null
+            && Value(active[0], "address") == LoginAddress(host.Value);
+
+        if (!isExpectedSession)
+        {
+            return (false, false, remainingAllowance);
+        }
+
+        var routerRemaining = Value(active[0], "session-time-left");
+        var remaining = string.IsNullOrWhiteSpace(routerRemaining)
+            ? remainingAllowance
+            : ParseDuration(routerRemaining);
+
+        return (true, false, remaining > remainingAllowance ? remainingAllowance : remaining);
     }
 
     public async Task RevokeAsync(NetworkOrder order, CancellationToken ct)
