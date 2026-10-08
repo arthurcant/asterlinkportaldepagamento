@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="../../wwwroot/css/site.css">
+    <link rel="stylesheet" href="../../wwwroot/css/order.css">
+</head>
+<body>
+    <main class="order-page">
+        <header class="order-brand">Ásterlink</header>
+        <section class="order-content">
+            <h1>Pagamento confirmado!</h1>
+            <dl class="order-details"><div class="order-detail"><dd>Plus — 2 horas</dd></div></dl>
+        </section>
+        <footer class="order-footer">Ásterlink</footer>
+    </main>
+    <output id="layout-result"></output>
+    <script>
+        const page = document.querySelector('.order-page');
+        const pageBox = page.getBoundingClientRect();
+        const bodyStyle = getComputedStyle(document.body);
+        document.querySelector('#layout-result').textContent = JSON.stringify({
+            viewportWidth: document.documentElement.clientWidth,
+            pageLeft: pageBox.left,
+            pageWidth: pageBox.width,
+            bodyMarginBottom: bodyStyle.marginBottom,
+            bodyPaddingLeft: bodyStyle.paddingLeft,
+            bodyBackgroundColor: bodyStyle.backgroundColor,
+            horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
+        });
+    </script>
+</body>
+</html>

@@ -1,14 +1,19 @@
+body {
+    margin: 0;
+    background: #001232;
+}
+
 .order-page {
     position: relative;
-    width: min(100%, 390px);
+    width: 100%;
     min-height: 100dvh;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     overflow: hidden;
-    margin: 0 auto;
+    margin: 0;
     background: #001232;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    box-shadow: none;
     color: #fff;
 }
 
@@ -316,14 +321,6 @@
     }
 }
 
-@media (min-width: 500px) {
-    body {
-        background:
-            radial-gradient(circle at 50% 18%, rgba(8, 125, 245, 0.12), transparent 34%),
-            #eef2f5;
-    }
-}
-
 @media (max-height: 720px) {
     .order-brand {
         min-height: 82px;
@@ -351,14 +348,14 @@
 
 @media (min-width: 600px) and (max-width: 1023px) {
     body {
-        padding: 32px 24px;
+        padding: 0;
     }
 
     .order-page {
-        width: min(100%, 760px);
-        min-height: calc(100dvh - 64px);
-        border: 1px solid rgba(140, 205, 255, 0.16);
-        border-radius: 28px;
+        width: 100%;
+        min-height: 100dvh;
+        border: 0;
+        border-radius: 0;
     }
 
     .order-brand {
