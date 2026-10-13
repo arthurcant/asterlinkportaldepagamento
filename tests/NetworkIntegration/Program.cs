@@ -88,7 +88,7 @@ var userWithCpf = new User { Cpf = "52998224725" };
 Check(userWithCpf.Cpf == "52998224725", "user identity retains its normalized CPF");
 
 var displayedPlan = new InternetPlan { SpeedMbps = 50 };
-Check(displayedPlan.SpeedMbps == 50, "internet plan retains display-only speed");
+Check(displayedPlan.SpeedMbps == 50, "internet plan retains configured speed");
 
 const string signature = "ts=1704908010,v1=9b0ea51d5a2b37aff293dac1dfa29ab394589ffa41b7ddb742a6617857fb6ad9";
 
@@ -149,6 +149,14 @@ var order = new NetworkOrder
     SpeedMbps = 20,
     Gateway = "lab"
 };
+
+if (args.Contains("--speed-only"))
+{
+    await HotspotSpeedTests.RunAsync(Check, options);
+    await CheckoutMethodSwitchTests.RunAsync(Check, options, paymentOptions);
+    Console.WriteLine($"{count} checks passed. HTTP transport is simulated; no router, database or payment was contacted.");
+    return;
+}
 
 Check(
     JsonSerializer.Deserialize<NetworkOrder>(JsonSerializer.Serialize(order))!.SpeedMbps == 20,
@@ -484,6 +492,8 @@ Check(!await reconciliation.ProcessAsync("12345", default)
     && store.Order.AccessStatus == "revoked" && networkHandler.LoginCount == 1,
     "later approved notification cannot restore a revoked purchase");
 
+await HotspotSpeedTests.RunAsync(Check, options);
+await CheckoutMethodSwitchTests.RunAsync(Check, options, paymentOptions);
 await IPv4PortalTests.RunAsync(Check, options, paymentOptions);
 
 Console.WriteLine($"{count} checks passed. HTTP transport is simulated; no router, database or payment was contacted.");
@@ -530,6 +540,13 @@ sealed class FakePayment(string reference) : HttpMessageHandler
 sealed class MemoryOrderStore(NetworkOrder order) : INetworkOrderStore
 {
     public NetworkOrder Order = order;
+    public List<string> EnqueuedPayments { get; } = [];
+
+    public Task EnqueueAsync(string paymentId, CancellationToken ct)
+    {
+        EnqueuedPayments.Add(paymentId);
+        return Task.CompletedTask;
+    }
 
     public Task<IAsyncDisposable> LockAsync(string id, CancellationToken ct)
     {
@@ -544,6 +561,10 @@ sealed class MemoryOrderStore(NetworkOrder order) : INetworkOrderStore
     public Task SaveAsync(NetworkOrder value, CancellationToken ct, bool enqueue = false)
     {
         Order = JsonSerializer.Deserialize<NetworkOrder>(JsonSerializer.Serialize(value))!;
+        if (enqueue)
+        {
+            EnqueuedPayments.Add(value.PaymentId);
+        }
         return Task.CompletedTask;
     }
 
@@ -558,6 +579,22 @@ sealed class MemoryOrderStore(NetworkOrder order) : INetworkOrderStore
 
 sealed class FakeRouter : HttpMessageHandler
 {
+    public Dictionary<string, Dictionary<string, string>> Profiles = new()
+    {
+        ["paid"] = new()
+        {
+            [".id"] = "*10",
+            ["name"] = "paid",
+            ["shared-users"] = "1",
+            ["rate-limit"] = "",
+            ["address-list"] = "paid-clients"
+        }
+    };
+
+    public int ProfileCreates;
+    public bool FailAfterProfileCreate;
+    public bool RejectProfileCreate;
+
     public Dictionary<string, string>? User;
 
     public int PutCount;
@@ -625,11 +662,39 @@ sealed class FakeRouter : HttpMessageHandler
         }
         else if (path.EndsWith("/profile"))
         {
-            result = new[] { new Dictionary<string, string>
+            if (request.Method == HttpMethod.Put)
+            {
+                if (RejectProfileCreate)
                 {
-                    ["name"] = "paid",
-                    ["shared-users"] = "1"
-                } };
+                    return new HttpResponseMessage(HttpStatusCode.Forbidden)
+                    {
+                        Content = new StringContent("{}")
+                    };
+                }
+                var body = JsonSerializer.Deserialize<Dictionary<string, string>>(
+                    await request.Content!.ReadAsStringAsync(cancellationToken))!;
+                var source = Profiles.Values.Single(p => p[".id"] == body["copy-from"]);
+                var profile = new Dictionary<string, string>(source);
+                foreach (var pair in body.Where(p => p.Key != "copy-from"))
+                {
+                    profile[pair.Key] = pair.Value;
+                }
+                profile[".id"] = "*" + (20 + ProfileCreates++);
+                Profiles.Add(body["name"], profile);
+                if (FailAfterProfileCreate)
+                {
+                    FailAfterProfileCreate = false;
+                    throw new HttpRequestException("Lost profile creation response");
+                }
+                result = profile;
+            }
+            else
+            {
+                var name = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(request.RequestUri.Query)["name"].ToString();
+                result = Profiles.TryGetValue(name, out var profile)
+                    ? new[] { profile }
+                    : Array.Empty<Dictionary<string, string>>();
+            }
         }
         else if (request.Method == HttpMethod.Put && path.EndsWith("/user"))
         {

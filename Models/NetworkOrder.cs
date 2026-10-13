@@ -31,6 +31,9 @@ public sealed class NetworkOrder
         get; set;
     }
 
+    // Missing on historical purchases: retain their existing HotSpot contract.
+    public bool EnforceSpeedLimit { get; set; }
+
     public string Address { get; set; } = "";
 
     public string Gateway { get; set; } = "";

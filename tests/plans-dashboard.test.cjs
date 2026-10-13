@@ -6,7 +6,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
 
-test('plan repository loads display-only speed from the database', () => {
+test('plan repository loads speed from the database', () => {
     const repository = read('Data', 'PlanRepository.cs');
 
     assert.equal((repository.match(/speed_mbps/g) || []).length >= 4, true);
@@ -49,12 +49,7 @@ test('dashboard keeps the top bar and implements the Figma selection flow', () =
     assert.match(styles, /\.plan-radio:checked \+ \.plan-card/);
 });
 
-test('plan speed remains outside RouterOS provisioning', () => {
-    const router = read('Services', 'RouterOsHotspot.cs');
-    const order = read('Models', 'NetworkOrder.cs');
-
-    assert.doesNotMatch(router, /SpeedMbps|speed_mbps/);
-});
+// RouterOS speed provisioning is exercised through HTTP contract tests in NetworkIntegration.
 
 test('all Figma plan icons are stored locally', () => {
     for (const asset of ['clock.svg', 'crown.svg', 'shield.svg', 'speed.svg', 'support.svg', 'arrow.svg']) {

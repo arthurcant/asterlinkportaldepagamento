@@ -9,4 +9,6 @@ public interface INetworkOrderStore
     Task<NetworkOrder?> GetAsync(string id, CancellationToken ct);
 
     Task SaveAsync(NetworkOrder order, CancellationToken ct, bool enqueue = false);
+
+    Task EnqueueAsync(string paymentId, CancellationToken ct);
 }

@@ -136,16 +136,7 @@ public sealed class RouterOsHotspot(
         RequireApprovedPayment(order);
         ValidateOrder(order);
 
-        var profiles = await RequestAsync(
-            HttpMethod.Get,
-            "ip/hotspot/user/profile?name=" + Uri.EscapeDataString(Options.UserProfile),
-            null,
-            ct);
-
-        if (profiles.GetArrayLength() != 1 || Value(profiles[0], "shared-users") != "1")
-        {
-            throw new InvalidOperationException("Configure um perfil HotSpot com shared-users=1.");
-        }
+        await EnsureProfileAsync(order, ct);
 
         var users = await UsersAsync(order, ct);
 
@@ -155,7 +146,7 @@ public sealed class RouterOsHotspot(
 
                 || Value(users[0], "server") != Options.HotspotServer
 
-                || Value(users[0], "profile") != Options.UserProfile
+                || Value(users[0], "profile") != ProfileName(order)
 
                 || Value(users[0], "comment") != UserComment(order)
 
@@ -182,11 +173,99 @@ public sealed class RouterOsHotspot(
                 ["name"] = order.Username,
                 ["password"] = Password(order),
                 ["server"] = Options.HotspotServer,
-                ["profile"] = Options.UserProfile,
+                ["profile"] = ProfileName(order),
                 ["limit-uptime"] = order.Minutes.ToString(System.Globalization.CultureInfo.InvariantCulture) + "m",
                 ["comment"] = UserComment(order)
             },
             ct);
+    }
+
+    private string ProfileName(NetworkOrder order)
+    {
+        return order.EnforceSpeedLimit
+            ? Options.UserProfile + "-aster-v1-" + order.SpeedMbps.ToString(System.Globalization.CultureInfo.InvariantCulture) + "m"
+            : Options.UserProfile;
+    }
+
+    private Task<JsonElement> ProfilesAsync(string name, CancellationToken ct)
+    {
+        return RequestAsync(
+            HttpMethod.Get,
+            "ip/hotspot/user/profile?name=" + Uri.EscapeDataString(name),
+            null,
+            ct);
+    }
+
+    private static bool MatchesRate(string rate, int speedMbps)
+    {
+        var parts = rate.Split('/');
+        if (parts.Length is < 1 or > 2)
+        {
+            return false;
+        }
+
+        // RouterOS can return equivalent rates as bits/s, k or M.
+        return parts.All(part =>
+        {
+            var multiplier = part.EndsWith('M') ? 1_000_000L : part.EndsWith('k') ? 1_000L : 1L;
+            var digits = multiplier == 1 ? part : part[..^1];
+            return long.TryParse(digits, System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var value)
+                && value > 0
+                && value <= long.MaxValue / multiplier
+                && value * multiplier == (long)speedMbps * 1_000_000;
+        });
+    }
+
+    private void ValidateProfile(JsonElement profiles, NetworkOrder order)
+    {
+        if (profiles.GetArrayLength() != 1
+            || Value(profiles[0], "name") != ProfileName(order)
+            || Value(profiles[0], "shared-users") != "1"
+            || (order.EnforceSpeedLimit && !MatchesRate(Value(profiles[0], "rate-limit"), order.SpeedMbps)))
+        {
+            throw new InvalidOperationException("Perfil HotSpot ausente ou divergente da velocidade do pedido; requer revisão.");
+        }
+    }
+
+    private async Task EnsureProfileAsync(NetworkOrder order, CancellationToken ct)
+    {
+        var profiles = await ProfilesAsync(ProfileName(order), ct);
+        if (profiles.GetArrayLength() == 0 && order.EnforceSpeedLimit)
+        {
+            var template = await ProfilesAsync(Options.UserProfile, ct);
+            if (template.GetArrayLength() != 1
+                || Value(template[0], "shared-users") != "1"
+                || string.IsNullOrEmpty(Value(template[0], ".id")))
+            {
+                throw new InvalidOperationException("Configure um perfil HotSpot base com shared-users=1.");
+            }
+
+            var speed = order.SpeedMbps.ToString(System.Globalization.CultureInfo.InvariantCulture) + "M";
+            try
+            {
+                await RequestAsync(
+                    HttpMethod.Put,
+                    "ip/hotspot/user/profile",
+                    new Dictionary<string, string>
+                    {
+                        ["copy-from"] = Value(template[0], ".id"),
+                        ["name"] = ProfileName(order),
+                        ["shared-users"] = "1",
+                        ["rate-limit"] = speed + "/" + speed
+                    },
+                    ct);
+            }
+            catch (HttpRequestException)
+            {
+                // Another purchase may create the same profile, or the response may be lost.
+                // Only the authoritative read below permits provisioning to continue.
+            }
+
+            profiles = await ProfilesAsync(ProfileName(order), ct);
+        }
+
+        ValidateProfile(profiles, order);
     }
 
     private Task<JsonElement> UsersAsync(NetworkOrder order, CancellationToken ct)
@@ -225,7 +304,8 @@ public sealed class RouterOsHotspot(
     {
         Options.Validate();
 
-        if (order.Gateway != Options.GatewayId || order.Minutes <= 0 || !IsClientAddress(order.Address))
+        if (order.Gateway != Options.GatewayId || order.Minutes <= 0 || !IsClientAddress(order.Address)
+            || (order.EnforceSpeedLimit && order.SpeedMbps <= 0))
         {
             throw new InvalidOperationException("Pedido não pertence ao gateway ou possui IPv4/limites inválidos.");
         }
@@ -334,11 +414,16 @@ public sealed class RouterOsHotspot(
 
         if (Value(users[0], "name") != order.Username
             || Value(users[0], "server") != Options.HotspotServer
-            || Value(users[0], "profile") != Options.UserProfile
+            || Value(users[0], "profile") != ProfileName(order)
             || Value(users[0], "comment") != UserComment(order)
             || ParseDuration(Value(users[0], "limit-uptime")) != TimeSpan.FromMinutes(order.Minutes))
         {
             throw new InvalidOperationException("Usuário HotSpot diverge do pedido; acesso recusado.");
+        }
+
+        if (order.EnforceSpeedLimit)
+        {
+            ValidateProfile(await ProfilesAsync(ProfileName(order), ct), order);
         }
 
         var expired = Value(users[0], "disabled") == "true"

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using asterlinkportaldepagamento.Data;
 using asterlinkportaldepagamento.Models;
@@ -15,7 +16,7 @@ namespace asterlinkportaldepagamento.Controllers;
 public sealed class CheckoutController(
     IPlanRepository plans,
     IAccessSessionRepository sessions,
-    NetworkOrderRepository orders,
+    INetworkOrderStore orders,
     MercadoPagoPayments payments,
     RouterOsHotspot router,
     IDataProtectionProvider protection,
@@ -122,6 +123,18 @@ public sealed class CheckoutController(
         }
 
         var id = checkoutId.ToString("N");
+        var method = RouterOsHotspot.Value(formData, "payment_method_id");
+        var type = RouterOsHotspot.Value(formData, "payment_type_id");
+        if (string.IsNullOrEmpty(type))
+        {
+            type = RouterOsHotspot.Value(formData, "selected_payment_method");
+        }
+
+        if (string.IsNullOrEmpty(method) || (method != "pix" && type is not ("credit_card" or "debit_card")))
+        {
+            return BadRequest(new { message = "Use PIX ou cartão." });
+        }
+
         await using var gate = await orders.LockAsync(id, ct);
         var order = await orders.GetAsync(id, ct);
 
@@ -138,27 +151,11 @@ public sealed class CheckoutController(
         {
             var plan = await plans.GetByIdAsync(planId, ct);
 
-            if (plan is null || plan.Price <= 0 || plan.DurationMinutes <= 0)
+            if (plan is null || plan.Price <= 0 || plan.DurationMinutes <= 0 || plan.SpeedMbps <= 0)
             {
                 return BadRequest(new
                 {
                     message = "Plano inválido."
-                });
-            }
-
-            var method = RouterOsHotspot.Value(formData, "payment_method_id");
-            var type = RouterOsHotspot.Value(formData, "payment_type_id");
-
-            if (string.IsNullOrEmpty(type))
-            {
-                type = RouterOsHotspot.Value(formData, "selected_payment_method");
-            }
-
-            if (method != "pix" && type is not ("credit_card" or "debit_card"))
-            {
-                return BadRequest(new
-                {
-                    message = "Use PIX ou cartão."
                 });
             }
 
@@ -217,6 +214,7 @@ public sealed class CheckoutController(
                 Price = plan.Price,
                 Minutes = plan.DurationMinutes,
                 SpeedMbps = plan.SpeedMbps,
+                EnforceSpeedLimit = true,
                 Address = current.Address,
                 Gateway = current.Gateway,
                 ProtectedPassword = router.ProtectPassword(Convert.ToHexString(RandomNumberGenerator.GetBytes(24))),
@@ -232,8 +230,13 @@ public sealed class CheckoutController(
             payment = order.PaymentId.Length > 0
             ? await payments.GetAsync(order.PaymentId, ct)
             : await payments.SendAsync(HttpMethod.Post, "v1/payments", payloadProtector.Unprotect(order.ProtectedPayload), order.Id, ct);
+
+            if (method != "pix" && RouterOsHotspot.Value(payment, "payment_method_id") == "pix")
+            {
+                payment = await payments.CancelPendingPixAsync(payment, order, paymentOptions.Value, ct);
+            }
         }
-        catch (HttpRequestException)
+        catch (Exception exception) when (exception is HttpRequestException or InvalidOperationException)
         {
             return StatusCode(
                 502,
@@ -262,6 +265,27 @@ public sealed class CheckoutController(
         order.ProtectedPayload = "";
         await orders.SaveAsync(order, ct, enqueue: true);
 
+        var previousMethod = RouterOsHotspot.Value(payment, "payment_method_id");
+        if (order.PaymentStatus != "approved" && previousMethod != method)
+        {
+            if (order.PaymentStatus is "cancelled" or "rejected")
+            {
+                // Stable across retries/tabs: never generate multiple card orders for one abandoned Pix.
+                var replacement = SHA256.HashData(Encoding.UTF8.GetBytes(order.Id + ":replacement"));
+                return Conflict(new
+                {
+                    code = "payment_method_changed",
+                    next_checkout_id = new Guid(replacement.AsSpan(0, 16)).ToString("N"),
+                    message = "Pagamento anterior encerrado. Processando o meio de pagamento escolhido."
+                });
+            }
+
+            return Conflict(new
+            {
+                message = "O pagamento anterior ainda está sendo verificado. Aguarde e tente novamente com este mesmo pedido."
+            });
+        }
+
         JsonElement? transaction = payment.TryGetProperty("point_of_interaction", out var interaction)
 
             && interaction.TryGetProperty("transaction_data", out var details) ? details.Clone() : null;
@@ -270,6 +294,7 @@ public sealed class CheckoutController(
         {
             id = paymentId,
             status = order.PaymentStatus,
+            payment_method_id = previousMethod,
             order_url = Url.Action(nameof(Order), new
             {
                 id = order.Id

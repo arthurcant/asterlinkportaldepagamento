@@ -52,6 +52,49 @@ public sealed class MercadoPagoPayments(IHttpClientFactory clients, IConfigurati
         return SendAsync(HttpMethod.Get, "v1/payments/" + id, null, null, ct);
     }
 
+    public async Task<JsonElement> CancelPendingPixAsync(
+        JsonElement payment,
+        NetworkOrder order,
+        MercadoPagoOptions options,
+        CancellationToken ct)
+    {
+        var id = RouterOsHotspot.Value(payment, "id");
+        if (!Matches(payment, order, options)
+            || (order.PaymentId.Length > 0 && order.PaymentId != id))
+        {
+            throw new InvalidOperationException("O pagamento anterior não corresponde ao pedido.");
+        }
+
+        if (RouterOsHotspot.Value(payment, "payment_method_id") != "pix"
+            || RouterOsHotspot.Value(payment, "status") != "pending")
+        {
+            return payment;
+        }
+
+        if (id.Length is 0 or > 80 || !id.All(char.IsAsciiDigit))
+        {
+            throw new InvalidOperationException("ID de pagamento inválido.");
+        }
+
+        try
+        {
+            await SendAsync(HttpMethod.Put, "v1/payments/" + id,
+                "{\"status\":\"cancelled\"}", null, ct);
+        }
+        catch (HttpRequestException)
+        {
+            // A lost response or a concurrent approval requires a fresh authoritative read.
+        }
+
+        var current = await GetAsync(id, ct);
+        if (RouterOsHotspot.Value(current, "id") != id || !Matches(current, order, options))
+        {
+            throw new InvalidOperationException("Não foi possível verificar a troca do meio de pagamento.");
+        }
+
+        return current;
+    }
+
     public static bool Matches(JsonElement payment, NetworkOrder order, MercadoPagoOptions options)
     => payment.TryGetProperty("external_reference", out var reference)
 

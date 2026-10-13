@@ -52,6 +52,7 @@
     };
 
     const showPix = (data) => {
+        if (data.payment_method_id !== 'pix') return false;
         const transaction = data?.point_of_interaction?.transaction_data;
         if (!transaction?.qr_code || !transaction?.qr_code_base64) return false;
         pixImage.src = `data:image/png;base64,${transaction.qr_code_base64}`;
@@ -139,27 +140,41 @@
                 onSubmit: ({ selectedPaymentMethod, formData }) => {
                     submitError = false;
                     paymentContainer.setAttribute('aria-busy', 'true');
-                    return fetch(`/checkout/${config.planId}/pagar`, {
-                        method: 'POST',
-                        redirect: 'error',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': document.querySelector(
-                                'input[name="__RequestVerificationToken"]',
-                            ).value,
-                            'X-Checkout-Id': checkoutId,
-                        },
-                        body: JSON.stringify({
-                            ...formData,
-                            selected_payment_method: selectedPaymentMethod,
-                        }),
-                    })
-                        .then(async (response) => {
-                            const data = await response.json().catch(() => {
-                                throw new Error(
-                                    'O servidor não retornou uma resposta de pagamento válida. Verifique sua sessão e tente novamente.',
-                                );
-                            });
+                    const sendPayment = async (allowMethodChange) => {
+                        const response = await fetch(`/checkout/${config.planId}/pagar`, {
+                            method: 'POST',
+                            redirect: 'error',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': document.querySelector(
+                                    'input[name="__RequestVerificationToken"]',
+                                ).value,
+                                'X-Checkout-Id': checkoutId,
+                            },
+                            body: JSON.stringify({
+                                ...formData,
+                                selected_payment_method: selectedPaymentMethod,
+                            }),
+                        });
+                        const data = await response.json().catch(() => {
+                            throw new Error(
+                                'O servidor não retornou uma resposta de pagamento válida. Verifique sua sessão e tente novamente.',
+                            );
+                        });
+                        if (
+                            allowMethodChange && response.status === 409 &&
+                            data.code === 'payment_method_changed' && data.next_checkout_id
+                        ) {
+                            checkoutId = data.next_checkout_id;
+                            sessionStorage.setItem(storageKey, checkoutId);
+                            pixPanel.hidden = true;
+                            show('Processando o pagamento escolhido…');
+                            return sendPayment(false);
+                        }
+                        return { response, data };
+                    };
+                    return sendPayment(true)
+                        .then(async ({ response, data }) => {
                             if (!response.ok)
                                 throw new Error(data.message || 'Pagamento não autorizado.');
                             if (data.status === 'approved' && data.order_url) {

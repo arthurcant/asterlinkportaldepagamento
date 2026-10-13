@@ -34,7 +34,7 @@ public sealed class CaptivePortalController(RouterOsHotspot router, IDataProtect
                     Path = "/"
                 });
 
-            return Redirect("/conta");
+            return NoContent();
         }
         catch (InvalidOperationException exception)
         {
