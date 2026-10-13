@@ -494,6 +494,7 @@ Check(!await reconciliation.ProcessAsync("12345", default)
 
 await HotspotSpeedTests.RunAsync(Check, options);
 await CheckoutMethodSwitchTests.RunAsync(Check, options, paymentOptions);
+await AccountLoginTests.RunAsync(Check);
 await IPv4PortalTests.RunAsync(Check, options, paymentOptions);
 
 Console.WriteLine($"{count} checks passed. HTTP transport is simulated; no router, database or payment was contacted.");

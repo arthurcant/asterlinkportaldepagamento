@@ -38,7 +38,7 @@ internal static class IPv4PortalTests
             ControllerContext = new ControllerContext { HttpContext = context }
         };
         check(await controller.Entry(default) is RedirectResult { Url: "/conta" },
-            "IPv4-only entry retains the account redirect");
+            "unauthenticated IPv4 entry returns to login after creating the device cookie");
 
         var cookie = SetCookieHeaderValue.Parse(context.Response.Headers.SetCookie.ToString());
         var token = cookie.Value.ToString();
@@ -104,6 +104,21 @@ internal static class IPv4PortalTests
         check(await controller.Entry(default) is BadRequestObjectResult
             && !absentContext.Response.Headers.ContainsKey("Set-Cookie"),
             "entry never creates an identity cookie for an absent HotSpot IP");
+
+        handler.HostPresent = true;
+        var authenticatedContext = new DefaultHttpContext();
+        authenticatedContext.Request.Scheme = "https";
+        authenticatedContext.Connection.RemoteIpAddress = IPAddress.Parse("192.168.88.10");
+        authenticatedContext.User = new System.Security.Claims.ClaimsPrincipal(
+            new System.Security.Claims.ClaimsIdentity(
+                new[] { new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, "1") },
+                "test"));
+        controller.ControllerContext = new ControllerContext { HttpContext = authenticatedContext };
+        check(await controller.Entry(default) is LocalRedirectResult { Url: "/conta/painel" }
+            && authenticatedContext.Response.Headers.ContainsKey("Set-Cookie"),
+            "authenticated entry creates device cookie before returning to dashboard");
+        check(await controller.Entry(default, "https://attacker.example") is LocalRedirectResult { Url: "/conta/painel" },
+            "entry refuses external return URLs");
     }
 
     private static HttpRequest RequestWithCookie(string token)

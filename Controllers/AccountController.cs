@@ -27,9 +27,6 @@ public sealed class AccountController(IUserRepository users, IPlanRepository pla
     [HttpPost("entrar"), ValidateAntiForgeryToken]
     public async Task<IActionResult> Login([Bind(Prefix = "Login")] LoginInputModel input, CancellationToken cancellationToken)
     {
-        var x = HttpContext.Connection.RemoteIpAddress;
-
-
         var model = new AuthViewModel
         {
             Mode = "login",
@@ -52,7 +49,7 @@ public sealed class AccountController(IUserRepository users, IPlanRepository pla
 
         await SignInAsync(user);
 
-        return RedirectToAction(nameof(Dashboard));
+        return Redirect("/rede/entrada?returnUrl=%2Fconta%2Fpainel");
     }
 
     [HttpPost("cadastrar"), ValidateAntiForgeryToken]

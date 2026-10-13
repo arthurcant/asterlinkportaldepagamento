@@ -15,7 +15,7 @@ public sealed class CaptivePortalController(RouterOsHotspot router, IDataProtect
     private const string DeviceProtectionPurpose = "AsterLink.Device.IPv4.v2";
 
     [HttpGet("entrada")]
-    public async Task<IActionResult> Entry(CancellationToken ct)
+    public async Task<IActionResult> Entry(CancellationToken ct, string? returnUrl = null)
     {
         try
         {
@@ -34,12 +34,24 @@ public sealed class CaptivePortalController(RouterOsHotspot router, IDataProtect
                     Path = "/"
                 });
 
-            return NoContent();
+            if (User.Identity?.IsAuthenticated == true)
+            {
+                return LocalRedirect(IsSafeLocalReturnUrl(returnUrl) ? returnUrl! : "/conta/painel");
+            }
+
+            return Redirect("/conta");
         }
         catch (InvalidOperationException exception)
         {
             return BadRequest(exception.Message);
         }
+    }
+
+    private static bool IsSafeLocalReturnUrl(string? returnUrl)
+    {
+        return !string.IsNullOrWhiteSpace(returnUrl)
+            && returnUrl[0] == '/'
+            && (returnUrl.Length == 1 || (returnUrl[1] != '/' && returnUrl[1] != '\\'));
     }
 
     public static DeviceContext? Read(HttpRequest request, IDataProtectionProvider protection)
