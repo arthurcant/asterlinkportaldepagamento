@@ -30,3 +30,9 @@ test('does not present rejected payment as a successful connection', () => {
     assert.equal(rejected.tone, 'error');
     assert.match(rejected.message, /recusado ou cancelado/i);
 });
+
+test('shows a replaced plan as ended without another connect button', () => {
+    const replaced = orderPage.presentationFor({ payment: 'approved', access: 'superseded' });
+    assert.equal(replaced.showConnect, false);
+    assert.match(replaced.message, /novo plano/i);
+});

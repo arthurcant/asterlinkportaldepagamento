@@ -57,6 +57,7 @@ public sealed class PaymentReconciliation(
     INetworkOrderStore orders,
     MercadoPagoPayments payments,
     RouterOsHotspot router,
+    NetworkAccessActivator activator,
     IOptions<MercadoPagoOptions> options,
     ILogger<PaymentReconciliation> logger)
 {
@@ -71,6 +72,14 @@ public sealed class PaymentReconciliation(
             return false;
         }
 
+        var initial = await orders.GetAsync(reference, ct);
+
+        if (initial is null)
+        {
+            return false;
+        }
+
+        await using var deviceGate = await orders.LockAsync(NetworkAccessActivator.DeviceLockId(initial), ct);
         await using var gate = await orders.LockAsync(reference, ct);
         var order = await orders.GetAsync(reference, ct);
 
@@ -99,7 +108,7 @@ public sealed class PaymentReconciliation(
 
         var retryConnection = false;
 
-        if (order.PaymentStatus == "approved" && order.AccessStatus != "revoked")
+        if (order.PaymentStatus == "approved" && order.AccessStatus is not ("revoked" or "superseded"))
         {
             if (order.AccessStatus != "ready")
             {
@@ -111,7 +120,7 @@ public sealed class PaymentReconciliation(
             order.AccessStatus = "ready";
             // Persist creation before login: a lost response must never create a new allowance.
             await orders.SaveAsync(order, ct);
-            var connected = await router.LoginAsync(order, ct);
+            var connected = await activator.ActivateAsync(order, ct);
             retryConnection = !connected && !(await router.StatusAsync(order, ct)).Expired;
         }
         else if (order.PaymentStatus is "refunded" or "charged_back" or "cancelled")

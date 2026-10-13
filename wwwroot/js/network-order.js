@@ -43,6 +43,11 @@
             message: 'O acesso foi cancelado.',
             tone: 'error',
         },
+        superseded: {
+            title: 'Plano substituído',
+            message: 'Um novo plano foi comprado para este dispositivo. Este acesso foi encerrado.',
+            tone: 'expired',
+        },
         checking_network: {
             title: 'Pagamento confirmado!',
             message: 'Pagamento registrado. Aguardando comunicação com a rede.',
@@ -122,6 +127,7 @@
                 form.hidden = !presentation.showConnect;
                 expiration.textContent = state.access === 'expired'
                     ? 'Plano expirado'
+                    : state.access === 'superseded' ? 'Plano substituído'
                     : formatExpiration(state.expires_at);
             } catch {
                 page.dataset.tone = 'pending';

@@ -59,6 +59,8 @@ builder.Services.AddScoped<MercadoPagoPayments>();
 
 builder.Services.AddScoped<RouterOsHotspot>();
 
+builder.Services.AddScoped<NetworkAccessActivator>();
+
 builder.Services.AddScoped<PaymentReconciliation>();
 
 builder.Services.AddHostedService<NetworkProvisioningWorker>();

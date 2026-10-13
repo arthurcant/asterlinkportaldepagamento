@@ -19,6 +19,7 @@ public sealed class CheckoutController(
     INetworkOrderStore orders,
     MercadoPagoPayments payments,
     RouterOsHotspot router,
+    NetworkAccessActivator activator,
     IDataProtectionProvider protection,
     IOptions<NetworkOptions> configured,
     IOptions<MercadoPagoOptions> paymentOptions,
@@ -372,6 +373,14 @@ public sealed class CheckoutController(
             return NotFound();
         }
 
+        var initial = await OwnedAsync(id, ct);
+
+        if (initial is null)
+        {
+            return NotFound();
+        }
+
+        await using var deviceGate = await orders.LockAsync(NetworkAccessActivator.DeviceLockId(initial), ct);
         await using var gate = await orders.LockAsync(id, ct);
         var order = await OwnedAsync(id, ct);
 
@@ -408,7 +417,22 @@ public sealed class CheckoutController(
             return Conflict("O acesso está esgotado ou indisponível.");
         }
 
-        if (!await router.LoginAsync(order, ct))
+        bool connected;
+
+        try
+        {
+            connected = await activator.ActivateAsync(order, ct);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Conflict(exception.Message);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            return StatusCode(502, "Pagamento preservado. Não foi possível concluir a conexão com o MikroTik; tente novamente neste pedido.");
+        }
+
+        if (!connected)
         {
             return Conflict("Dispositivo ausente ou acesso esgotado. Conecte-se à rede HotSpot e tente novamente.");
         }

@@ -353,7 +353,7 @@ public sealed class RouterOsHotspot(
 
     private static void RequireApprovedPayment(NetworkOrder order)
     {
-        if (order.PaymentStatus != "approved" || order.AccessStatus == "revoked")
+        if (order.PaymentStatus != "approved" || order.AccessStatus is "revoked" or "superseded")
         {
             throw new InvalidOperationException("Somente um pagamento aprovado pode liberar acesso à rede.");
         }
@@ -398,6 +398,78 @@ public sealed class RouterOsHotspot(
 
         // A successful HTTP response alone is not proof that the device is connected.
         return (await StatusAsync(order, ct)).Active;
+    }
+
+    public async Task<string?> ActiveUserForDeviceAsync(NetworkOrder order, CancellationToken ct)
+    {
+        ValidateOrder(order);
+        var host = await HostAsync(order.Address, ct);
+
+        if (host is null)
+        {
+            return null;
+        }
+
+        var address = LoginAddress(host.Value);
+        var active = await RequestAsync(
+            HttpMethod.Get,
+            "ip/hotspot/active?address=" + Uri.EscapeDataString(address)
+                + "&.proplist=.id,user,address,server",
+            null,
+            ct);
+        var matching = active.EnumerateArray()
+            .Where(session => Value(session, "address") == address
+                && Value(session, "server") == Options.HotspotServer)
+            .ToArray();
+
+        if (matching.Length > 1 || matching.Length == 1 && string.IsNullOrWhiteSpace(Value(matching[0], "user")))
+        {
+            throw new InvalidOperationException("Sessão HotSpot ambígua para o IPv4 do dispositivo; requer revisão.");
+        }
+
+        return matching.Length == 1 ? Value(matching[0], "user") : null;
+    }
+
+    public async Task RemoveSupersededUserAsync(NetworkOrder order, CancellationToken ct)
+    {
+        ValidateOrder(order);
+        var users = await UsersAsync(order, ct);
+
+        if (users.GetArrayLength() > 1 || users.GetArrayLength() == 1
+            && (Value(users[0], "name") != order.Username
+                || Value(users[0], "server") != Options.HotspotServer
+                || Value(users[0], "comment") != UserComment(order)))
+        {
+            throw new InvalidOperationException("Usuário anterior diverge do pedido; remoção recusada.");
+        }
+
+        if (users.GetArrayLength() == 1)
+        {
+            await RequestAsync(
+                HttpMethod.Patch,
+                "ip/hotspot/user/" + RecordId(users[0]),
+                new { disabled = "true" },
+                ct);
+        }
+
+        var active = await ActiveAsync(order, ct);
+        var host = await HostAsync(order.Address, ct);
+
+        foreach (var session in active.EnumerateArray())
+        {
+            if (host is null || Value(session, "server") != Options.HotspotServer
+                || Value(session, "address") != LoginAddress(host.Value))
+            {
+                throw new InvalidOperationException("Sessão anterior não corresponde ao dispositivo; remoção recusada.");
+            }
+
+            await RequestAsync(HttpMethod.Delete, "ip/hotspot/active/" + RecordId(session), null, ct);
+        }
+
+        if (users.GetArrayLength() == 1)
+        {
+            await RequestAsync(HttpMethod.Delete, "ip/hotspot/user/" + RecordId(users[0]), null, ct);
+        }
     }
 
     public async Task<(bool Active, bool Expired, TimeSpan? Remaining)> StatusAsync(

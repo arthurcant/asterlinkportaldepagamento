@@ -25,7 +25,7 @@
                 const state = await response.json();
                 if (
                     state.payment === 'approved' ||
-                    ['ready', 'connected', 'revoked', 'expired'].includes(state.access)
+                    ['ready', 'connected', 'revoked', 'superseded', 'expired'].includes(state.access)
                 ) {
                     sessionStorage.removeItem(storageKey);
                     window.location.assign(url);

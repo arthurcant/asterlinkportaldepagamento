@@ -75,7 +75,7 @@ internal static class IPv4PortalTests
         }).Build();
         // These scenarios must stop before persistence/payment; null dependencies fail if that boundary is crossed.
         var checkout = new CheckoutController(
-            null!, null!, null!, new MercadoPagoPayments(factory, configuration), router,
+            null!, null!, null!, new MercadoPagoPayments(factory, configuration), router, null!,
             protection, Options.Create(options), Options.Create(paymentOptions), configuration);
         var request = RequestWithCookie(token);
         checkout.ControllerContext = new ControllerContext { HttpContext = request.HttpContext };

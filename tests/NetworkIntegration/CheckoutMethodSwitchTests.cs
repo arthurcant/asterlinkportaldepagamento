@@ -56,6 +56,7 @@ internal static class CheckoutMethodSwitchTests
             check(fixture.Handler.Posts == 1, $"{type}: repeated submit does not charge the card twice");
 
             var reconciliation = new PaymentReconciliation(fixture.Store, fixture.Payments, fixture.Router,
+                new NetworkAccessActivator(fixture.Router, fixture.Store),
                 Options.Create(paymentOptions), NullLogger<PaymentReconciliation>.Instance);
             await reconciliation.ProcessAsync("23456", default);
             check(fixture.RouterHandler.Active && fixture.RouterHandler.LoginCount == 1
@@ -133,7 +134,8 @@ internal static class CheckoutMethodSwitchTests
             var token = protection.CreateProtector("AsterLink.Device.IPv4.v2")
                 .Protect(JsonSerializer.Serialize(new DeviceContext(old.Address, old.Gateway, DateTimeOffset.UtcNow.AddHours(1))));
             context.Request.Headers.Cookie = "AsterLink.Device=" + token;
-            Controller = new CheckoutController(new TestPlans(speedMbps), null!, Store, Payments, Router, protection,
+            Controller = new CheckoutController(new TestPlans(speedMbps), null!, Store, Payments, Router,
+                new NetworkAccessActivator(Router, Store), protection,
                 Options.Create(options), Options.Create(paymentOptions), config)
             {
                 ControllerContext = new ControllerContext { HttpContext = context },

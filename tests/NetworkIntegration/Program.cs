@@ -440,6 +440,7 @@ var reconciliation = new PaymentReconciliation(
     store,
     new MercadoPagoPayments(factory, configuration),
     networkService,
+    new NetworkAccessActivator(networkService, store),
     Options.Create(paymentOptions),
     NullLogger<PaymentReconciliation>.Instance);
 
@@ -496,6 +497,7 @@ await HotspotSpeedTests.RunAsync(Check, options);
 await CheckoutMethodSwitchTests.RunAsync(Check, options, paymentOptions);
 await AccountLoginTests.RunAsync(Check);
 await IPv4PortalTests.RunAsync(Check, options, paymentOptions);
+await PlanReplacementTests.RunAsync(Check);
 
 Console.WriteLine($"{count} checks passed. HTTP transport is simulated; no router, database or payment was contacted.");
 

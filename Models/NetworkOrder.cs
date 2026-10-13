@@ -44,6 +44,9 @@ public sealed class NetworkOrder
 
     public string AccessStatus { get; set; } = "waiting_payment";
 
+    // Persisted before replacing the prior HotSpot account so retries can finish cleanup.
+    public string SupersededOrderId { get; set; } = "";
+
     public string ProtectedPassword { get; set; } = "";
 
     public string ProtectedPayload { get; set; } = "";
